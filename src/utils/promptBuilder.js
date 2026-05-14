@@ -1,0 +1,80 @@
+const TEMPERATURE_MAP = { low: 0.3, balanced: 0.7, creative: 1.0 }
+const MAX_DOC_CHARS = 6000
+
+const STYLE_DESCRIPTIONS = {
+  factual:
+    'Factual Q&A — questions about specific facts in the document (who, what, when, where, why, how many)',
+  instruction:
+    'Instruction-following — task-based prompts where the document content informs a helpful, detailed response',
+}
+
+const DIFFICULTY_GUIDANCE = {
+  basic: 'Keep questions simple and direct. Answers should be concise (1-3 sentences).',
+  intermediate:
+    'Use moderately complex questions that require understanding relationships in the document. Answers should be 2-5 sentences.',
+  advanced:
+    'Use nuanced, multi-part questions that require synthesis across the document. Answers should be thorough and specific.',
+}
+
+/**
+ * Build the messages array for any LLM provider.
+ * Returns [{ role: 'system', content }, { role: 'user', content }].
+ * The temperature float is returned separately for the caller to pass to complete().
+ */
+export function buildMessages(document, settings) {
+  const { pairCount, styles, difficulty, domainTag, temperatureHint } = settings
+
+  const styleList = styles.map((s) => STYLE_DESCRIPTIONS[s]).join('\n  - ')
+  const difficultyGuide = DIFFICULTY_GUIDANCE[difficulty] || DIFFICULTY_GUIDANCE.intermediate
+  const domainNote = domainTag ? `Domain/context tag: "${domainTag}".` : ''
+
+  const systemPrompt = `You are a dataset generation assistant for AI fine-tuning.
+
+Your task is to read a source document and generate high-quality question-answer pairs suitable for supervised fine-tuning of language models.
+
+CRITICAL OUTPUT RULE: Return ONLY a raw JSON array. Do NOT include markdown code fences (\`\`\`json). Do NOT include any explanation, preamble, or text before or after the JSON array.
+
+Output format — a JSON array of objects:
+[
+  { "instruction": "<the question or task prompt>", "output": "<the complete answer>", "type": "factual|instruction" }
+]
+
+Quality requirements:
+- Every answer must be complete, specific, and fully grounded in the document. Do not hallucinate.
+- Never reference the document itself (e.g., avoid "According to the document..."). Write answers as standalone knowledge.
+- Vary question phrasing. Avoid starting every question with the same word.
+- The "type" field must be exactly "factual" or "instruction".`
+
+  // Truncate document if too long
+  let docText = document.text
+  let truncationNote = ''
+  if (docText.length > MAX_DOC_CHARS) {
+    docText = docText.slice(0, MAX_DOC_CHARS)
+    truncationNote = '\n\n[... document truncated for length ...]'
+  }
+
+  const userPrompt = `Generate exactly ${pairCount} question-answer pairs from the document below.
+
+Style(s) to use:
+  - ${styleList}
+${styles.length > 1 ? 'Mix both styles across the pairs.' : ''}
+
+Difficulty level: ${difficulty}
+${difficultyGuide}
+${domainNote}
+
+---
+DOCUMENT:
+${docText}${truncationNote}
+---
+
+Remember: return ONLY the raw JSON array, nothing else.`
+
+  return {
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: TEMPERATURE_MAP[temperatureHint] ?? 0.7,
+  }
+}
