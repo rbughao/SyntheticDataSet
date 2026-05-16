@@ -94,10 +94,11 @@ export default function App() {
   } = useDocuments()
 
   const {
-    generate,
+    generateAll,
     regeneratePair,
     isLoading,
     progress,
+    fileProgress,
     error: genError,
     clearError: clearGenError,
     cancelGeneration,
@@ -130,22 +131,27 @@ export default function App() {
     })
   }
 
-  // Generation
+  // Generation — processes ALL loaded documents sequentially
   async function handleGenerate() {
-    if (!activeDocument) return
+    if (!documents.length) return
     clearGenError()
-    // Clear existing pairs immediately so the workspace is clean
+    // Clear the workspace so we start fresh for this run
     setPairs([])
-    await generate(
-      activeDocument,
+
+    await generateAll(
+      documents,
       settings,
-      // onPairsReceived: final ordered result — replaces the streamed pairs
-      (allPairs) => {
-        setPairs(allPairs)
-      },
-      // onChunkDone: stream pairs to workspace as each chunk finishes
+      // onChunkPairs: stream pairs as each chunk finishes (append, tagged by source doc)
       (chunkPairs) => {
         setPairs((prev) => [...prev, ...chunkPairs])
+      },
+      // onFileDone: atomically replace this file's streamed pairs with the
+      // final document-order result (fixes any out-of-order chunk arrival)
+      (docId, orderedPairs) => {
+        setPairs((prev) => [
+          ...prev.filter((p) => p.sourceDocId !== docId),
+          ...orderedPairs,
+        ])
       }
     )
   }
@@ -209,6 +215,7 @@ export default function App() {
           activeDocumentId={activeDocumentId}
           loading={docLoading}
           error={docError}
+          fileProgress={fileProgress}
           onAddFile={addFile}
           onAddPaste={addPaste}
           onRemove={removeDocument}
@@ -218,17 +225,22 @@ export default function App() {
         <SettingsPanel settings={settings} onChange={updateSettings} />
         <GenerateButton
           isLoading={isLoading}
-          disabled={!activeDocument}
+          disabled={documents.length === 0}
           onClick={handleGenerate}
           onCancel={cancelGeneration}
           progress={progress}
+          documentCount={documents.length}
         />
       </div>
 
       {/* ── Right workspace ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <WorkspaceHeader
-          documentName={activeDocument?.name}
+          documentName={
+            documents.length > 1
+              ? `${documents.length} documents`
+              : activeDocument?.name
+          }
           pairs={filteredPairs}
           providerSlug={settings.providerSlug}
           model={settings.model}

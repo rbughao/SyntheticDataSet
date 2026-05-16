@@ -11,12 +11,6 @@ import { createProvider } from '../providers/index.js'
  * Run taskFns with at most `concurrency` in-flight simultaneously.
  * Each worker goroutine pulls the next unclaimed task from a shared index,
  * so N workers saturate up to N API slots concurrently.
- *
- * @param {Array<() => Promise<any>>} taskFns
- * @param {number}  concurrency  Max simultaneous in-flight requests
- * @param {Function} onItemDone  (index, value|null, error|null) — called as each task settles
- * @param {{ current: boolean }} cancelRef  Set .current=true to stop queuing new tasks
- * @returns {Promise<Array<{ ok, value?, error? }>>}  Indexed by original task position
  */
 async function runConcurrent(taskFns, concurrency, onItemDone, cancelRef) {
   const results = new Array(taskFns.length).fill(null)
@@ -77,6 +71,24 @@ function isContextError(err) {
   )
 }
 
+/** Classify an error into the three UI categories. */
+function classifyError(err) {
+  if (err instanceof ParseError) {
+    return { type: 'parse', message: err.message, rawText: err.rawText }
+  }
+  const msg = err.message || ''
+  if (
+    msg.includes('Failed to fetch') ||
+    msg.includes('Network error') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('proxy_error') ||
+    msg.includes('HTTP 502')
+  ) {
+    return { type: 'network', message: msg }
+  }
+  return { type: 'api', message: msg }
+}
+
 /** Map a raw LLM response text into fully formed pair objects. */
 function toPairs(parsed) {
   return parsed.map((item) => ({
@@ -90,36 +102,138 @@ function toPairs(parsed) {
 }
 
 // ---------------------------------------------------------------------------
+// processOneDocument — pure async helper (no React state)
+// ---------------------------------------------------------------------------
+/**
+ * Runs the full chunked pipeline for a single document.
+ * Does NOT touch React state — callers own all state transitions.
+ *
+ * @param {object} doc          Document object { id, name, text, … }
+ * @param {object} settings     Generation settings
+ * @param {object} provider     Already-created LLMProvider instance
+ * @param {Function} onChunkPairs  (pairs[]) — called as each chunk succeeds
+ * @param {Function} onProgress    ({ completed, total }) — called after each chunk settles
+ * @param {{ current: boolean }} cancelRef
+ * @returns {Promise<Array>}    Ordered pairs array (document order, not completion order)
+ */
+async function processOneDocument({ doc, settings, provider, onChunkPairs, onProgress, cancelRef }) {
+  const fullText = doc.text
+  const rawChunks = chunkDocument(fullText, CHUNK_SIZE, CHUNK_OVERLAP)
+  const totalPairs = settings.pairCount
+  const concurrency = Math.max(1, settings.concurrency || 3)
+
+  const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
+  const n = chunks.length
+  const basePairs = Math.floor(totalPairs / n)
+  const extraPairs = totalPairs % n
+
+  const chunkResults = new Array(n).fill(null)
+  let completedCount = 0
+  let failedCount = 0
+  let lastFailError = null
+
+  // Each task has an adaptive retry loop: context-size errors trigger halving
+  // of chunk text and pair count (up to 3 halvings: 4000→2000→1000→500 chars).
+  const MAX_CONTEXT_RETRIES = 3
+  const taskFns = chunks.map((chunk, i) => async () => {
+    const pairsForThisChunk = basePairs + (i < extraPairs ? 1 : 0)
+    let chunkText = chunk.text
+    let pairsToRequest = pairsForThisChunk
+
+    for (let attempt = 0; attempt <= MAX_CONTEXT_RETRIES; attempt++) {
+      try {
+        const chunkForPrompt = { ...chunk, text: chunkText }
+        const { messages, temperature } = buildChunkMessages(
+          chunkForPrompt, i, n, pairsToRequest, settings
+        )
+        const responseText = await provider.complete(messages, {
+          model: settings.model,
+          temperature,
+          maxTokens: calcMaxTokens(pairsToRequest),
+        })
+        return toPairs(parseResponse(responseText))
+      } catch (err) {
+        const hitContextLimit = isContextError(err)
+        const canShrink = chunkText.length > 500 && attempt < MAX_CONTEXT_RETRIES
+
+        if (hitContextLimit && canShrink) {
+          chunkText = chunkText.slice(0, Math.ceil(chunkText.length / 2))
+          pairsToRequest = Math.max(1, Math.ceil(pairsToRequest / 2))
+          console.warn(
+            `[chunk ${i + 1}/${n}] Context limit hit — retrying with ` +
+            `${chunkText.length} chars, ${pairsToRequest} pair(s) ` +
+            `(attempt ${attempt + 2}/${MAX_CONTEXT_RETRIES + 1})`
+          )
+          continue
+        }
+        throw err
+      }
+    }
+  })
+
+  await runConcurrent(
+    taskFns,
+    concurrency,
+    (index, pairs, err) => {
+      completedCount++
+      if (pairs && pairs.length > 0) {
+        chunkResults[index] = pairs
+        onChunkPairs?.(pairs)
+      } else {
+        chunkResults[index] = []
+        if (err) { failedCount++; lastFailError = err }
+        console.warn(`Chunk ${index + 1}/${n} failed:`, err?.message)
+      }
+      onProgress?.({ completed: completedCount, total: n })
+    },
+    cancelRef
+  )
+
+  if (cancelRef?.current) return []
+
+  if (failedCount > 0 && failedCount === n) {
+    throw new Error(
+      `All ${n} chunk${n !== 1 ? 's' : ''} failed. ` +
+      `Last error: ${lastFailError?.message || 'unknown error'}`
+    )
+  }
+
+  return chunkResults.flatMap((r) => r || [])
+}
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 export function useGenerate() {
   const [isLoading, setIsLoading] = useState(false)
-  // { completed: number, total: number, pairsCount: number } | null
+  // Chunk + file level progress, or null when idle.
+  // Shape: { fileIndex, fileTotal, fileName, completed, total, pairsCount }
   const [progress, setProgress] = useState(null)
+  // Per-document processing status for sidebar badges.
+  // Shape: { [docId]: { status: 'pending'|'processing'|'done'|'error', pairCount: number } }
+  const [fileProgress, setFileProgress] = useState({})
   const [error, setError] = useState(null)
 
-  // cancelRef: set to true by cancelGeneration() to stop queuing new chunks.
   const cancelRef = useRef(false)
-
-  // generationIdRef: incremented at the start of every generate() call.
-  // Any async callback that sees a stale ID (from a previous or superseded
-  // run) discards its work silently, preventing race conditions when the user
-  // clicks Generate again before the previous run finishes.
   const generationIdRef = useRef(0)
 
   const clearError = useCallback(() => setError(null), [])
-
-  const cancelGeneration = useCallback(() => {
-    cancelRef.current = true
-  }, [])
+  const cancelGeneration = useCallback(() => { cancelRef.current = true }, [])
 
   // ---------------------------------------------------------------------------
-  // generate() — chunked, parallel generation
+  // generateAll() — sequential multi-document orchestrator
+  //
+  // Processes every document in `documents` one after another.
+  // Chunks within each document are processed in parallel (up to concurrency).
+  //
+  // Callbacks:
+  //   onChunkPairs(pairs, docId)  — called as each chunk succeeds (streaming UI)
+  //   onFileDone(docId, orderedPairs) — called when a file finishes with final
+  //                                     document-order pairs (for ordered replace)
   // ---------------------------------------------------------------------------
-  const generate = useCallback(async (document, settings, onPairsReceived, onChunkDone) => {
-    if (!document) return
+  const generateAll = useCallback(async (documents, settings, onChunkPairs, onFileDone) => {
+    if (!documents.length) return
 
-    // Claim a unique generation ID before any awaits (avoids reset race)
     const myId = ++generationIdRef.current
     cancelRef.current = false
 
@@ -127,157 +241,116 @@ export function useGenerate() {
     setProgress(null)
     setError(null)
 
+    // Initialise all documents as 'pending' in the sidebar
+    setFileProgress(
+      Object.fromEntries(documents.map((d) => [d.id, { status: 'pending', pairCount: 0 }]))
+    )
+
+    const provider = createProvider(settings.providerSlug, {
+      apiKey: settings.apiKey,
+      baseURL: settings.baseURL,
+      model: settings.model,
+      proxyBaseUrl: settings.proxyBaseUrl,
+      subProvider: settings.subProvider,
+    })
+
+    let totalPairsCount = 0
+    let firstError = null
+
     try {
-      const fullText = document.text
-      const rawChunks = chunkDocument(fullText, CHUNK_SIZE, CHUNK_OVERLAP)
-      const totalPairs = settings.pairCount
-      const concurrency = Math.max(1, settings.concurrency || 3)
+      for (let fi = 0; fi < documents.length; fi++) {
+        if (cancelRef.current || generationIdRef.current !== myId) break
 
-      // Never request 0 pairs from a chunk: cap active chunks to totalPairs.
-      // This also guarantees basePairs >= 1.
-      const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
-      const n = chunks.length
+        const doc = documents[fi]
 
-      // Distribute pairs evenly: each chunk gets basePairs, and the first
-      // extraPairs chunks each get one extra, summing to exactly totalPairs.
-      const basePairs = Math.floor(totalPairs / n)
-      const extraPairs = totalPairs % n
+        // Mark this file as 'processing' in the sidebar
+        setFileProgress((prev) => ({
+          ...prev,
+          [doc.id]: { status: 'processing', pairCount: 0 },
+        }))
 
-      const provider = createProvider(settings.providerSlug, {
-        apiKey: settings.apiKey,
-        baseURL: settings.baseURL,
-        model: settings.model,
-        proxyBaseUrl: settings.proxyBaseUrl,
-        subProvider: settings.subProvider,
-      })
+        // Show initial progress for this file
+        setProgress({
+          fileIndex: fi,
+          fileTotal: documents.length,
+          fileName: doc.name,
+          completed: 0,
+          total: 1,
+          pairsCount: totalPairsCount,
+        })
 
-      // Results array indexed by chunk position — preserves document order
-      // regardless of which chunk finishes first.
-      const chunkResults = new Array(n).fill(null)
-      let completedCount = 0
-      let streamedPairsCount = 0
-      let failedCount = 0
-      let lastFailError = null
+        try {
+          const orderedPairs = await processOneDocument({
+            doc,
+            settings,
+            provider,
+            onChunkPairs: (chunkPairs) => {
+              if (generationIdRef.current !== myId) return
+              // Tag each pair with its source document
+              const tagged = chunkPairs.map((p) => ({ ...p, sourceDocId: doc.id }))
+              totalPairsCount += tagged.length
+              onChunkPairs?.(tagged, doc.id)
+            },
+            onProgress: ({ completed, total }) => {
+              if (generationIdRef.current !== myId) return
+              setProgress({
+                fileIndex: fi,
+                fileTotal: documents.length,
+                fileName: doc.name,
+                completed,
+                total,
+                pairsCount: totalPairsCount,
+              })
+            },
+            cancelRef,
+          })
 
-      setProgress({ completed: 0, total: n, pairsCount: 0 })
+          if (generationIdRef.current !== myId) break
 
-      // Build one async task per chunk (closures capture `i` correctly via `map`)
-      //
-      // Each task has an adaptive retry loop: if the model rejects the request
-      // with a context-size error, the chunk text and requested pair count are
-      // both halved and the call is retried.  Up to MAX_CONTEXT_RETRIES halvings
-      // are attempted (4000 → 2000 → 1000 → 500 chars), after which the error
-      // is re-thrown so the chunk is counted as failed.
-      const MAX_CONTEXT_RETRIES = 3
-      const taskFns = chunks.map((chunk, i) => async () => {
-        const pairsForThisChunk = basePairs + (i < extraPairs ? 1 : 0)
+          if (cancelRef.current) {
+            // Cancelled mid-file — leave remaining as 'pending'
+            setFileProgress((prev) => ({
+              ...prev,
+              [doc.id]: { status: 'pending', pairCount: 0 },
+            }))
+            break
+          }
 
-        let chunkText = chunk.text
-        let pairsToRequest = pairsForThisChunk
+          // Tag ordered pairs and hand them to App for the atomic replace
+          const taggedOrdered = orderedPairs.map((p) => ({ ...p, sourceDocId: doc.id }))
+          setFileProgress((prev) => ({
+            ...prev,
+            [doc.id]: { status: 'done', pairCount: taggedOrdered.length },
+          }))
+          onFileDone?.(doc.id, taggedOrdered)
+        } catch (err) {
+          if (generationIdRef.current !== myId) break
 
-        for (let attempt = 0; attempt <= MAX_CONTEXT_RETRIES; attempt++) {
-          try {
-            // Shallow-clone chunk so only the text is overridden (index/total intact)
-            const chunkForPrompt = { ...chunk, text: chunkText }
-            const { messages, temperature } = buildChunkMessages(
-              chunkForPrompt, i, n, pairsToRequest, settings
-            )
-            const responseText = await provider.complete(messages, {
-              model: settings.model,
-              temperature,
-              maxTokens: calcMaxTokens(pairsToRequest),
-            })
-            return toPairs(parseResponse(responseText))
-          } catch (err) {
-            const hitContextLimit = isContextError(err)
-            const canShrink = chunkText.length > 500 && attempt < MAX_CONTEXT_RETRIES
+          setFileProgress((prev) => ({
+            ...prev,
+            [doc.id]: { status: 'error', pairCount: 0 },
+          }))
 
-            if (hitContextLimit && canShrink) {
-              chunkText = chunkText.slice(0, Math.ceil(chunkText.length / 2))
-              pairsToRequest = Math.max(1, Math.ceil(pairsToRequest / 2))
-              console.warn(
-                `[chunk ${i + 1}/${n}] Context limit hit — retrying with ` +
-                `${chunkText.length} chars, ${pairsToRequest} pair(s) ` +
-                `(attempt ${attempt + 2}/${MAX_CONTEXT_RETRIES + 1})`
-              )
-              continue // retry with smaller window
-            }
-
-            throw err // non-context error or exhausted retries → propagate
+          if (documents.length === 1) {
+            // Single-file run — surface the error in the workspace banner
+            firstError = classifyError(err)
+          } else {
+            // Multi-file run — log and continue to the next file
+            console.error(`File "${doc.name}" failed:`, err.message)
           }
         }
-      })
-
-      await runConcurrent(
-        taskFns,
-        concurrency,
-        (index, pairs, err) => {
-          // Discard callbacks from superseded runs
-          if (generationIdRef.current !== myId) return
-
-          completedCount++
-          if (pairs && pairs.length > 0) {
-            chunkResults[index] = pairs
-            streamedPairsCount += pairs.length
-            // Stream chunk pairs to the workspace as they arrive (completion order)
-            onChunkDone?.(pairs)
-          } else {
-            chunkResults[index] = []
-            if (err) { failedCount++; lastFailError = err }
-            console.warn(`Chunk ${index + 1}/${n} failed:`, err?.message)
-          }
-          setProgress({ completed: completedCount, total: n, pairsCount: streamedPairsCount })
-        },
-        cancelRef
-      )
-
-      // Bail out if this run was superseded by a newer Generate call
-      if (generationIdRef.current !== myId) return
-
-      // Bail out if cancelled — keep whatever pairs streamed via onChunkDone
-      if (cancelRef.current) return
-
-      // C-2 fix: surface an error when every chunk failed instead of silently
-      // returning 0 pairs with no feedback.
-      if (failedCount > 0 && failedCount === n) {
-        throw new Error(
-          `All ${n} chunk${n !== 1 ? 's' : ''} failed. ` +
-          `Last error: ${lastFailError?.message || 'unknown error'}`
-        )
-      }
-
-      // Final ordered result (chunk index order, not completion order)
-      const allPairs = chunkResults.flatMap((r) => r || [])
-      onPairsReceived(allPairs)
-    } catch (err) {
-      // Discard errors from superseded runs
-      if (generationIdRef.current !== myId) return
-
-      if (err instanceof ParseError) {
-        setError({ type: 'parse', message: err.message, rawText: err.rawText })
-      } else if (
-        err.message?.includes('Failed to fetch') ||
-        err.message?.includes('Network error') ||
-        err.message?.includes('ECONNREFUSED') ||
-        err.message?.includes('proxy_error') ||
-        // 502 from the Vite CORS proxy means the upstream server is unreachable
-        err.message?.includes('HTTP 502')
-      ) {
-        setError({ type: 'network', message: err.message })
-      } else {
-        setError({ type: 'api', message: err.message })
       }
     } finally {
-      // Only this run should reset loading state — a superseding run owns isLoading
       if (generationIdRef.current === myId) {
         setIsLoading(false)
         setProgress(null)
+        if (firstError) setError(firstError)
       }
     }
   }, [])
 
   // ---------------------------------------------------------------------------
-  // regeneratePair() — single-pair targeted replacement (unchanged flow)
+  // regeneratePair() — single-pair targeted replacement (unchanged)
   // ---------------------------------------------------------------------------
   const regeneratePair = useCallback(async (pair, document, settings, onPairRegenerated) => {
     const targetSettings = {
@@ -286,7 +359,6 @@ export function useGenerate() {
       styles: [pair.type === 'instruction' ? 'instruction' : 'factual'],
     }
 
-    // For single-pair regeneration, use the first chunk for focused context
     const chunks = chunkDocument(document.text, CHUNK_SIZE, CHUNK_OVERLAP)
     const docForPrompt = { ...document, text: chunks[0].text }
     const { messages, temperature } = buildMessages(docForPrompt, targetSettings)
@@ -310,17 +382,19 @@ export function useGenerate() {
 
     onPairRegenerated({
       ...parsed[0],
-      id: pair.id, // keep same ID so the card stays in place
+      id: pair.id,
       rating: null,
       edited: false,
+      sourceDocId: pair.sourceDocId,
     })
   }, [])
 
   return {
-    generate,
+    generateAll,
     regeneratePair,
     isLoading,
     progress,
+    fileProgress,
     error,
     clearError,
     cancelGeneration,

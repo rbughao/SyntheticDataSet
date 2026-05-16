@@ -1,10 +1,28 @@
-export default function GenerateButton({ isLoading, onClick, onCancel, disabled, progress }) {
+export default function GenerateButton({ isLoading, onClick, onCancel, disabled, progress, documentCount = 1 }) {
   const isDisabled = isLoading || disabled
 
+  // File-level progress (multi-document runs)
+  const isMultiFile = progress && progress.fileTotal > 1
+  const filePct = isMultiFile
+    ? Math.round((progress.fileIndex / progress.fileTotal) * 100)
+    : null
+
+  // Chunk-level progress within the current file
   const isMultiChunk = progress && progress.total > 1
-  const progressPct = isMultiChunk
+  const chunkPct = isMultiChunk
     ? Math.round((progress.completed / progress.total) * 100)
     : null
+
+  // Button label
+  const idleLabel = documentCount > 1
+    ? `Process ${documentCount} Files`
+    : 'Generate Dataset'
+
+  const loadingLabel = isMultiFile
+    ? `File ${progress.fileIndex + 1} / ${progress.fileTotal}`
+    : isMultiChunk
+    ? `Chunk ${progress.completed} / ${progress.total}`
+    : 'Generating…'
 
   return (
     <div className="p-4 border-t border-gray-100 space-y-2">
@@ -24,39 +42,55 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {isMultiChunk
-              ? `Chunk ${progress.completed}/${progress.total}`
-              : 'Generating…'}
+            {loadingLabel}
           </>
         ) : (
           <>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            Generate Dataset
+            {idleLabel}
           </>
         )}
       </button>
 
-      {/* Multi-chunk progress bar */}
+      {/* File-level progress bar (only shown for multi-document runs) */}
+      {isMultiFile && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span className="truncate max-w-[160px]" title={progress.fileName}>
+              📄 {progress.fileName}
+            </span>
+            <span className="flex-shrink-0 ml-2 font-medium">
+              {progress.fileIndex + 1}/{progress.fileTotal} files
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-1 overflow-hidden">
+            <div
+              className="bg-indigo-300 h-1 rounded-full transition-all duration-500"
+              style={{ width: `${filePct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Chunk-level progress bar (within the current file) */}
       {isMultiChunk && (
         <div className="space-y-1">
           <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
             <div
               className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
+              style={{ width: `${chunkPct}%` }}
             />
           </div>
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">
-              {progress.pairsCount} pair{progress.pairsCount !== 1 ? 's' : ''} so far
-            </p>
-            <p className="text-xs text-gray-400">{progressPct}%</p>
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span>{progress.pairsCount} pair{progress.pairsCount !== 1 ? 's' : ''} so far</span>
+            <span>{chunkPct}%</span>
           </div>
         </div>
       )}
 
-      {/* Cancel button — appears during any loading state */}
+      {/* Cancel button */}
       {isLoading && (
         <button
           onClick={onCancel}

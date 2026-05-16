@@ -10,11 +10,48 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Status badge shown on each document row during/after batch processing
+function DocStatusBadge({ status, pairCount }) {
+  if (!status || status === 'pending') return null
+  if (status === 'processing') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-indigo-500 flex-shrink-0">
+        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      </span>
+    )
+  }
+  if (status === 'done') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-green-600 flex-shrink-0 font-medium">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+        </svg>
+        {pairCount}
+      </span>
+    )
+  }
+  if (status === 'error') {
+    return (
+      <span className="flex items-center gap-1 text-xs text-red-500 flex-shrink-0">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+        </svg>
+        error
+      </span>
+    )
+  }
+  return null
+}
+
 export default function DocumentPanel({
   documents,
   activeDocumentId,
   loading,
   error,
+  fileProgress = {},
   onAddFile,
   onAddPaste,
   onRemove,
@@ -152,35 +189,49 @@ export default function DocumentPanel({
       {/* Document list */}
       {documents.length > 0 && (
         <div className="px-4 pb-2">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Documents</p>
-          <div className="space-y-1 max-h-40 overflow-y-auto scrollbar-thin">
-            {documents.map((doc) => (
-              <div
-                key={doc.id}
-                onClick={() => onSetActive(doc.id)}
-                className={`flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                  doc.id === activeDocumentId
-                    ? 'bg-indigo-50 border border-indigo-200'
-                    : 'hover:bg-gray-50 border border-transparent'
-                }`}
-              >
-                <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-700 truncate">{doc.name}</p>
-                  <p className="text-xs text-gray-400">{doc.sizeFormatted} · {doc.charCount.toLocaleString()} chars</p>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRemove(doc.id) }}
-                  className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+              Documents
+            </p>
+            {documents.length > 1 && (
+              <span className="text-xs text-gray-400">
+                {documents.length} queued
+              </span>
+            )}
+          </div>
+          <div className="space-y-1 max-h-48 overflow-y-auto scrollbar-thin">
+            {documents.map((doc) => {
+              const fp = fileProgress[doc.id]
+              return (
+                <div
+                  key={doc.id}
+                  onClick={() => onSetActive(doc.id)}
+                  className={`flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                    doc.id === activeDocumentId
+                      ? 'bg-indigo-50 border border-indigo-200'
+                      : 'hover:bg-gray-50 border border-transparent'
+                  } ${fp?.status === 'processing' ? 'ring-1 ring-indigo-300' : ''}`}
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                </button>
-              </div>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">{doc.name}</p>
+                    <p className="text-xs text-gray-400">{doc.sizeFormatted} · {doc.charCount.toLocaleString()} chars</p>
+                  </div>
+                  {/* Processing status badge */}
+                  <DocStatusBadge status={fp?.status} pairCount={fp?.pairCount} />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRemove(doc.id) }}
+                    className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 ml-1"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
