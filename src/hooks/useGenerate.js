@@ -51,6 +51,32 @@ function calcMaxTokens(pairCount) {
   return Math.min(Math.max(pairCount * 300, 1024), 16384)
 }
 
+/**
+ * Returns true when the error is a model context-window overflow.
+ * Matches phrasing from OpenAI, Anthropic, Google, Ollama, LM Studio, and
+ * generic OpenAI-compatible servers.
+ */
+function isContextError(err) {
+  const msg = (err.message || '').toLowerCase()
+  return (
+    msg.includes('context size') ||
+    msg.includes('context_length') ||
+    msg.includes('context length') ||
+    msg.includes('context window') ||
+    msg.includes('context has been exceeded') ||
+    msg.includes('maximum context') ||
+    msg.includes('input is too long') ||
+    msg.includes('too long for') ||
+    msg.includes('length exceeded') ||
+    (msg.includes('token') && (
+      msg.includes('exceed') ||
+      msg.includes('limit') ||
+      msg.includes('maximum') ||
+      msg.includes('too many')
+    ))
+  )
+}
+
 /** Map a raw LLM response text into fully formed pair objects. */
 function toPairs(parsed) {
   return parsed.map((item) => ({
@@ -136,19 +162,50 @@ export function useGenerate() {
       setProgress({ completed: 0, total: n, pairsCount: 0 })
 
       // Build one async task per chunk (closures capture `i` correctly via `map`)
+      //
+      // Each task has an adaptive retry loop: if the model rejects the request
+      // with a context-size error, the chunk text and requested pair count are
+      // both halved and the call is retried.  Up to MAX_CONTEXT_RETRIES halvings
+      // are attempted (4000 → 2000 → 1000 → 500 chars), after which the error
+      // is re-thrown so the chunk is counted as failed.
+      const MAX_CONTEXT_RETRIES = 3
       const taskFns = chunks.map((chunk, i) => async () => {
         const pairsForThisChunk = basePairs + (i < extraPairs ? 1 : 0)
-        // Use buildChunkMessages for ALL chunks (single or multi) so the prompt
-        // format and behaviour are identical regardless of document size.
-        const { messages, temperature } = buildChunkMessages(
-          chunk, i, n, pairsForThisChunk, settings
-        )
-        const responseText = await provider.complete(messages, {
-          model: settings.model,
-          temperature,
-          maxTokens: calcMaxTokens(pairsForThisChunk),
-        })
-        return toPairs(parseResponse(responseText))
+
+        let chunkText = chunk.text
+        let pairsToRequest = pairsForThisChunk
+
+        for (let attempt = 0; attempt <= MAX_CONTEXT_RETRIES; attempt++) {
+          try {
+            // Shallow-clone chunk so only the text is overridden (index/total intact)
+            const chunkForPrompt = { ...chunk, text: chunkText }
+            const { messages, temperature } = buildChunkMessages(
+              chunkForPrompt, i, n, pairsToRequest, settings
+            )
+            const responseText = await provider.complete(messages, {
+              model: settings.model,
+              temperature,
+              maxTokens: calcMaxTokens(pairsToRequest),
+            })
+            return toPairs(parseResponse(responseText))
+          } catch (err) {
+            const hitContextLimit = isContextError(err)
+            const canShrink = chunkText.length > 500 && attempt < MAX_CONTEXT_RETRIES
+
+            if (hitContextLimit && canShrink) {
+              chunkText = chunkText.slice(0, Math.ceil(chunkText.length / 2))
+              pairsToRequest = Math.max(1, Math.ceil(pairsToRequest / 2))
+              console.warn(
+                `[chunk ${i + 1}/${n}] Context limit hit — retrying with ` +
+                `${chunkText.length} chars, ${pairsToRequest} pair(s) ` +
+                `(attempt ${attempt + 2}/${MAX_CONTEXT_RETRIES + 1})`
+              )
+              continue // retry with smaller window
+            }
+
+            throw err // non-context error or exhausted retries → propagate
+          }
+        }
       })
 
       await runConcurrent(
@@ -200,7 +257,11 @@ export function useGenerate() {
         setError({ type: 'parse', message: err.message, rawText: err.rawText })
       } else if (
         err.message?.includes('Failed to fetch') ||
-        err.message?.includes('Network error')
+        err.message?.includes('Network error') ||
+        err.message?.includes('ECONNREFUSED') ||
+        err.message?.includes('proxy_error') ||
+        // 502 from the Vite CORS proxy means the upstream server is unreachable
+        err.message?.includes('HTTP 502')
       ) {
         setError({ type: 'network', message: err.message })
       } else {

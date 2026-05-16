@@ -1,12 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import http from 'node:http'
+import https from 'node:https'
+import { URL } from 'node:url'
 
 /**
  * Vite plugin: server-side CORS proxy.
  *
  * Intercepts requests to /api/cors-proxy from the browser.
  * Reads the full target URL from the `x-proxy-target` request header and
- * forwards the request using Node's native fetch (no browser CORS restriction).
+ * forwards the request using Node's http/https modules (more reliable than
+ * the built-in fetch/undici for loopback/localhost targets on Windows).
  * Adds Access-Control-Allow-Origin: * to the response so the browser accepts it.
  *
  * Only active in the dev server — production builds use direct fetch.
@@ -14,7 +18,7 @@ import react from '@vitejs/plugin-react'
 const corsProxyPlugin = {
   name: 'cors-proxy',
   configureServer(server) {
-    server.middlewares.use('/api/cors-proxy', async (req, res) => {
+    server.middlewares.use('/api/cors-proxy', (req, res) => {
       // Handle CORS preflight that browsers send before cross-origin POST requests
       if (req.method === 'OPTIONS') {
         res.setHeader('Access-Control-Allow-Origin', '*')
@@ -28,47 +32,81 @@ const corsProxyPlugin = {
       const targetUrl = req.headers['x-proxy-target']
       if (!targetUrl) {
         res.statusCode = 400
+        res.setHeader('Content-Type', 'text/plain')
         res.end('Missing x-proxy-target header')
         return
       }
 
-      // Collect the request body (POST bodies need to be buffered)
-      const chunks = []
-      req.on('data', (chunk) => chunks.push(chunk))
-      await new Promise((resolve) => req.on('end', resolve))
-      const bodyBuf = chunks.length ? Buffer.concat(chunks) : undefined
-
-      // Forward all headers except proxy-specific and connection management ones
-      const forwardHeaders = {}
-      for (const [key, value] of Object.entries(req.headers)) {
-        if (!['host', 'x-proxy-target', 'connection', 'transfer-encoding'].includes(key)) {
-          forwardHeaders[key] = value
-        }
+      let parsed
+      try {
+        parsed = new URL(targetUrl)
+      } catch {
+        res.statusCode = 400
+        res.setHeader('Content-Type', 'text/plain')
+        res.end(`Invalid target URL: ${targetUrl}`)
+        return
       }
 
-      try {
-        const upstream = await fetch(targetUrl, {
-          method: req.method,
-          headers: forwardHeaders,
-          body: bodyBuf && bodyBuf.length > 0 ? bodyBuf : undefined,
-        })
+      // Build forwarded headers — strip proxy-specific and connection management fields.
+      // Also strip accept-encoding: the Node http module doesn't auto-decompress, so if
+      // we forward the browser's "gzip, br" and the upstream sends compressed bytes we
+      // can't transparently re-serve them. Dropping the header forces plain text.
+      const HOP_BY_HOP = new Set([
+        'host', 'x-proxy-target', 'connection', 'transfer-encoding',
+        'accept-encoding', 'te', 'trailer', 'upgrade',
+      ])
+      const forwardHeaders = {}
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (!HOP_BY_HOP.has(key)) forwardHeaders[key] = value
+      }
+      // Set Host to match the target so the upstream server recognises the request
+      forwardHeaders['host'] = parsed.host
 
-        res.statusCode = upstream.status
+      const transport = parsed.protocol === 'https:' ? https : http
 
-        // Forward response headers, skip transfer-encoding (we re-buffer the body)
-        upstream.headers.forEach((value, key) => {
-          if (key !== 'transfer-encoding') res.setHeader(key, value)
-        })
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: req.method,
+        headers: forwardHeaders,
+        // Use IPv4 explicitly to avoid Node resolving "localhost" → ::1 (IPv6)
+        // when the target server only listens on 127.0.0.1.
+        family: 4,
+      }
+
+      const proxyReq = transport.request(options, (proxyRes) => {
+        res.statusCode = proxyRes.statusCode || 200
+
+        // Forward response headers, skip hop-by-hop fields
+        for (const [key, value] of Object.entries(proxyRes.headers)) {
+          if (key !== 'transfer-encoding') {
+            res.setHeader(key, value)
+          }
+        }
         // Always allow the browser to read this response
         res.setHeader('Access-Control-Allow-Origin', '*')
 
-        const responseBody = Buffer.from(await upstream.arrayBuffer())
-        res.end(responseBody)
-      } catch (err) {
-        res.statusCode = 502
-        res.setHeader('Content-Type', 'text/plain')
-        res.end(`Proxy error: ${err.message}`)
-      }
+        proxyRes.pipe(res)
+      })
+
+      proxyReq.on('error', (err) => {
+        // Only write the head if we haven't started yet
+        if (!res.headersSent) {
+          res.statusCode = 502
+          res.setHeader('Content-Type', 'application/json')
+          // Return JSON so the client can parse the error code and message
+          res.end(JSON.stringify({
+            error: 'proxy_error',
+            code: err.code || 'UNKNOWN',
+            message: err.message,
+            target: targetUrl,
+          }))
+        }
+      })
+
+      // Pipe the incoming request body straight into the proxy request
+      req.pipe(proxyReq)
     })
   },
 }

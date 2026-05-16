@@ -65,8 +65,22 @@ async function fetchModelsForProvider(slug, { apiKey, baseURL, subProvider }) {
     if (!base) throw new Error('Base URL is empty')
     const res = await proxyFetch(`${base}/models`, { headers: authHeaders })
     if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`HTTP ${res.status}${body ? `: ${body.slice(0, 120)}` : ''}`)
+      // Try to parse structured proxy error (new JSON format) for a friendlier message
+      let friendlyMsg = `HTTP ${res.status}`
+      try {
+        const errBody = await res.json()
+        if (errBody?.code === 'ECONNREFUSED') {
+          friendlyMsg = slug === 'ollama'
+            ? 'Cannot connect — is Ollama running? Try: ollama serve'
+            : `Connection refused at ${base}. Is the server running?`
+        } else if (errBody?.message) {
+          friendlyMsg = errBody.message.slice(0, 160)
+        }
+      } catch {
+        const text = await res.text().catch(() => '')
+        if (text) friendlyMsg += `: ${text.slice(0, 120)}`
+      }
+      throw new Error(friendlyMsg)
     }
     const data = await res.json()
     const items = Array.isArray(data) ? data : (data.data ?? [])
@@ -115,7 +129,8 @@ export default function SettingsPanel({ settings, onChange }) {
     if (showConnectionTest && !settings.baseURL) return // Custom/Ollama need base URL
 
     let cancelled = false
-    setConnStatus(LOADING)
+    // Don't set LOADING here — auto-fetch is silent (no spinner shown to user).
+    // The user can always click Refresh / Test to get explicit feedback.
 
     fetchModelsForProvider(settings.providerSlug, {
       apiKey: settings.apiKey,
@@ -536,14 +551,6 @@ export default function SettingsPanel({ settings, onChange }) {
               ))}
             </select>
           )}
-
-          {/* Hint when free-text model field is empty with discovered models available */}
-          {hasFreeTextModel && connStatus === OK && discoveredModels.length > 0 && !settings.model && (
-            <p className="mt-1 text-xs text-amber-600">Select a model from the list above.</p>
-          )}
-
-          {/* Clickable model list for free-text providers (Ollama, Custom) */}
-          {hasFreeTextModel && <DiscoveredModelList />}
 
           {/* Error detail for non-connection-test providers */}
           {!showConnectionTest && connStatus === ERROR && (
