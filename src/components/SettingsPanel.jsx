@@ -2,43 +2,86 @@ import { useState, useEffect } from 'react'
 import { PROVIDERS } from '../providers/index.js'
 import { proxyFetch } from '../utils/corsProxy.js'
 
-// Status values for the connection test: 'idle' | 'loading' | 'ok' | 'error'
+// Connection / model-fetch status values
 const IDLE = 'idle'
 const LOADING = 'loading'
 const OK = 'ok'
 const ERROR = 'error'
 
+// ---------------------------------------------------------------------------
+// fetchModelsForProvider — unified model-listing across all providers
+// ---------------------------------------------------------------------------
 /**
- * Fetch the model list from an OpenAI-compatible /models endpoint.
- * Returns an array of model ID strings sorted alphabetically.
+ * Fetch the list of available model IDs for any provider.
+ * Returns a sorted string array.
+ * Throws with a human-readable message on failure.
  */
-async function fetchModels(baseURL, apiKey) {
-  const base = (baseURL || '').replace(/\/+$/, '')
-  if (!base) throw new Error('Base URL is empty')
+async function fetchModelsForProvider(slug, { apiKey, baseURL, subProvider }) {
+  const authHeaders = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
 
-  const headers = { 'Content-Type': 'application/json' }
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-
-  const res = await proxyFetch(`${base}/models`, { headers })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`HTTP ${res.status}${body ? `: ${body.slice(0, 120)}` : ''}`)
+  if (slug === 'openai') {
+    const res = await proxyFetch('https://api.openai.com/v1/models', { headers: authHeaders })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return (data.data || []).map((m) => m.id).filter(Boolean).sort()
   }
 
-  const data = await res.json()
+  if (slug === 'google') {
+    // Google models endpoint uses the API key as a header (not in the URL)
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+      headers: { 'x-goog-api-key': apiKey || '', 'Content-Type': 'application/json' },
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    return (data.models || [])
+      .map((m) => m.name?.replace('models/', ''))
+      .filter((name) => name && name.startsWith('gemini'))
+      .sort()
+  }
 
-  // Standard OpenAI format: { data: [{ id, ... }] }
-  // Some servers return a plain array instead
-  const items = Array.isArray(data) ? data : (data.data ?? [])
-  return items
-    .map((m) => (typeof m === 'string' ? m : m.id))
-    .filter(Boolean)
-    .sort()
+  if (slug === 'meta') {
+    const base = (baseURL || PROVIDERS.meta.baseURLOptions?.[0]?.value || '').replace(/\/+$/, '')
+    if (!base) throw new Error('No API host selected')
+    const res = await proxyFetch(`${base}/models`, { headers: authHeaders })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const items = Array.isArray(data) ? data : (data.data ?? [])
+    return items.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean).sort()
+  }
+
+  if (slug === 'chinese') {
+    const subMeta = PROVIDERS.chinese.subProviders?.[subProvider] || {}
+    const base = (subMeta.baseURL || '').replace(/\/+$/, '')
+    if (!base) throw new Error('No base URL for the selected sub-provider')
+    const res = await proxyFetch(`${base}/models`, { headers: authHeaders })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const items = Array.isArray(data) ? data : (data.data ?? [])
+    return items.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean).sort()
+  }
+
+  if (slug === 'ollama' || slug === 'custom') {
+    const base = (baseURL || '').replace(/\/+$/, '')
+    if (!base) throw new Error('Base URL is empty')
+    const res = await proxyFetch(`${base}/models`, { headers: authHeaders })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status}${body ? `: ${body.slice(0, 120)}` : ''}`)
+    }
+    const data = await res.json()
+    const items = Array.isArray(data) ? data : (data.data ?? [])
+    return items.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean).sort()
+  }
+
+  return []
 }
 
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 export default function SettingsPanel({ settings, onChange }) {
   const [showApiKey, setShowApiKey] = useState(false)
-  const [connStatus, setConnStatus] = useState(IDLE)   // connection test state
+  const [connStatus, setConnStatus] = useState(IDLE)
   const [connError, setConnError] = useState('')
   const [discoveredModels, setDiscoveredModels] = useState([])
 
@@ -51,22 +94,77 @@ export default function SettingsPanel({ settings, onChange }) {
   const isMock = settings.providerSlug === 'mock'
   const hasFreeTextModel = providerMeta.freeTextModel
   const hasBaseURLOptions = Array.isArray(providerMeta.baseURLOptions)
-  const canTestConnection = isCustom || isOllama
 
-  // Reset connection status when the base URL changes so stale results don't linger
+  // Providers that support live model listing (all except Mock and Anthropic)
+  const canFetchModels = !isMock && !isAnthropic
+  // Providers with a base URL input + connection test (Ollama, Custom)
+  const showConnectionTest = isCustom || isOllama
+
+  // ── Reset connection state when provider or base URL changes ──────────────
   useEffect(() => {
     setConnStatus(IDLE)
     setDiscoveredModels([])
     setConnError('')
   }, [settings.baseURL, settings.providerSlug])
 
-  // When provider changes, reset model to that provider's default and load stored API key + baseURL
+  // ── Auto-fetch models when provider changes and an API key is already saved ─
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!canFetchModels) return
+    if (!settings.apiKey) return
+    if (showConnectionTest && !settings.baseURL) return // Custom/Ollama need base URL
+
+    let cancelled = false
+    setConnStatus(LOADING)
+
+    fetchModelsForProvider(settings.providerSlug, {
+      apiKey: settings.apiKey,
+      baseURL: settings.baseURL,
+      subProvider: settings.subProvider,
+    })
+      .then((models) => {
+        if (cancelled) return
+        setDiscoveredModels(models)
+        setConnStatus(models.length > 0 ? OK : IDLE)
+        if (models.length === 1 && !settings.model) onChange({ model: models[0] })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        // Auto-fetch failure is silent — user can retry with the Refresh button
+        setConnStatus(IDLE)
+        console.warn('Auto model fetch failed:', err.message)
+      })
+
+    return () => { cancelled = true }
+  }, [settings.providerSlug]) // intentionally only on provider change
+
+  // ── Shared model-fetch handler (Refresh button + Test Connection button) ──
+  async function handleFetchModels() {
+    setConnStatus(LOADING)
+    setDiscoveredModels([])
+    setConnError('')
+    try {
+      const models = await fetchModelsForProvider(settings.providerSlug, {
+        apiKey: settings.apiKey,
+        baseURL: settings.baseURL,
+        subProvider: settings.subProvider,
+      })
+      setDiscoveredModels(models)
+      setConnStatus(OK)
+      if (models.length === 1 && !settings.model) onChange({ model: models[0] })
+    } catch (err) {
+      setConnStatus(ERROR)
+      setConnError(err.message)
+    }
+  }
+
+  // ── Provider change ───────────────────────────────────────────────────────
   function handleProviderChange(slug) {
     const meta = PROVIDERS[slug] || {}
     const defaultModel = meta.defaultModel || ''
     const storedKey = localStorage.getItem(`apiKey_${slug}`) || ''
-    // For Custom and Ollama, restore the previously saved base URL from localStorage
     const storedBaseURL = localStorage.getItem(`baseURL_${slug}`) || ''
+    const storedProxyUrl = localStorage.getItem(`proxyBaseUrl_${slug}`) || ''
     const defaultBaseURL = storedBaseURL || meta.baseURLOptions?.[0]?.value || ''
     const defaultSubProvider = meta.defaultSubProvider || ''
     const subMeta = defaultSubProvider ? meta.subProviders?.[defaultSubProvider] : null
@@ -77,7 +175,7 @@ export default function SettingsPanel({ settings, onChange }) {
       apiKey: storedKey,
       baseURL: subMeta?.baseURL || defaultBaseURL,
       subProvider: defaultSubProvider,
-      proxyBaseUrl: '',
+      proxyBaseUrl: storedProxyUrl,
     })
   }
 
@@ -92,8 +190,15 @@ export default function SettingsPanel({ settings, onChange }) {
     }
   }
 
+  function handleProxyBaseUrlBlur(value) {
+    // M-5 fix: persist the proxy URL so it survives provider switches
+    localStorage.setItem(`proxyBaseUrl_${settings.providerSlug}`, value)
+  }
+
   function handleSubProviderChange(sub) {
     const subMeta = providerMeta.subProviders?.[sub] || {}
+    setDiscoveredModels([])
+    setConnStatus(IDLE)
     onChange({
       subProvider: sub,
       baseURL: subMeta.baseURL || '',
@@ -101,24 +206,77 @@ export default function SettingsPanel({ settings, onChange }) {
     })
   }
 
-  async function handleTestConnection() {
-    setConnStatus(LOADING)
-    setDiscoveredModels([])
-    setConnError('')
-    try {
-      const models = await fetchModels(settings.baseURL, settings.apiKey)
-      setDiscoveredModels(models)
-      setConnStatus(OK)
-      // If only one model is available and none is selected yet, auto-select it
-      if (models.length === 1 && !settings.model) {
-        onChange({ model: models[0] })
-      }
-    } catch (err) {
-      setConnStatus(ERROR)
-      setConnError(err.message)
-    }
+  // ── Shared discovered models list ─────────────────────────────────────────
+  function DiscoveredModelList() {
+    if (connStatus !== OK || discoveredModels.length === 0) return null
+    return (
+      <div className="mt-2">
+        <p className="text-xs text-gray-400 mb-1.5">Click a model to select it:</p>
+        <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-48 overflow-y-auto scrollbar-thin">
+          {discoveredModels.map((modelId) => {
+            const isSelected = settings.model === modelId
+            return (
+              <button
+                key={modelId}
+                onClick={() => onChange({ model: modelId })}
+                className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-2 ${
+                  isSelected
+                    ? 'bg-indigo-50 text-indigo-700 font-medium'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <span className="truncate font-mono">{modelId}</span>
+                {isSelected && (
+                  <svg className="w-3.5 h-3.5 flex-shrink-0 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
   }
 
+  // ── Refresh button (compact, shown in model section header) ───────────────
+  function RefreshButton({ disabled: extraDisabled }) {
+    const isDisabled = connStatus === LOADING || extraDisabled
+    return (
+      <button
+        onClick={handleFetchModels}
+        disabled={isDisabled}
+        title="Fetch available models from the provider"
+        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          connStatus === OK
+            ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100'
+            : connStatus === ERROR
+            ? 'border-red-300 text-red-600 bg-red-50 hover:bg-red-100'
+            : 'border-gray-200 text-gray-500 hover:border-gray-300 bg-white'
+        }`}
+      >
+        {connStatus === LOADING ? (
+          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        )}
+        {connStatus === OK
+          ? `${discoveredModels.length} model${discoveredModels.length !== 1 ? 's' : ''}`
+          : connStatus === LOADING
+          ? 'Fetching…'
+          : 'Refresh models'}
+      </button>
+    )
+  }
+
+  // ==========================================================================
+  // Render
+  // ==========================================================================
   return (
     <div className="p-4 space-y-5 border-t border-gray-100">
       <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Settings</h2>
@@ -161,13 +319,14 @@ export default function SettingsPanel({ settings, onChange }) {
             type="text"
             value={settings.proxyBaseUrl || ''}
             onChange={(e) => onChange({ proxyBaseUrl: e.target.value })}
+            onBlur={(e) => handleProxyBaseUrlBlur(e.target.value)}
             placeholder="http://localhost:8080/https://api.anthropic.com"
             className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
           />
         </div>
       )}
 
-      {/* Ollama warning */}
+      {/* Ollama setup instructions */}
       {isOllama && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 space-y-1">
           <p className="font-semibold">Ollama setup</p>
@@ -177,23 +336,21 @@ export default function SettingsPanel({ settings, onChange }) {
         </div>
       )}
 
-      {/* Custom CORS note */}
+      {/* Custom endpoint note */}
       {isCustom && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-600">
-          <p className="font-semibold mb-1">Custom endpoint requirements</p>
-          <p>The server must send CORS headers (<code className="bg-gray-100 px-1 rounded">Access-Control-Allow-Origin: *</code>) to allow browser requests.</p>
-          <p className="mt-1">Include <code className="bg-gray-100 px-1 rounded">/v1</code> in the URL, e.g. <code className="bg-gray-100 px-1 rounded">http://host:8000/v1</code>.</p>
+          <p className="font-semibold mb-1">Custom endpoint</p>
+          <p>Include <code className="bg-gray-100 px-1 rounded">/v1</code> in the URL, e.g. <code className="bg-gray-100 px-1 rounded">http://host:8000/v1</code>. In dev mode CORS is proxied automatically.</p>
         </div>
       )}
 
-      {/* Base URL + Test Connection button */}
-      {(isCustom || isOllama) && (
+      {/* Base URL + Test Connection (Custom / Ollama only) */}
+      {showConnectionTest && (
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-medium text-gray-500">
               Base URL {isOllama ? '' : '(required)'}
             </label>
-            {/* Inline connection status badge */}
             {connStatus === OK && (
               <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -222,7 +379,7 @@ export default function SettingsPanel({ settings, onChange }) {
               className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
             <button
-              onClick={handleTestConnection}
+              onClick={handleFetchModels}
               disabled={!settings.baseURL || connStatus === LOADING}
               title="Test connection and list available models"
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
@@ -249,44 +406,14 @@ export default function SettingsPanel({ settings, onChange }) {
             </button>
           </div>
 
-          {/* Error detail */}
           {connStatus === ERROR && (
             <p className="mt-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {connError || 'Could not reach the endpoint. Check the URL and that CORS is enabled on the server.'}
+              {connError || 'Could not reach the endpoint. Check the URL and that the server is running.'}
             </p>
           )}
 
-          {/* Discovered model list */}
-          {connStatus === OK && discoveredModels.length > 0 && (
-            <div className="mt-2">
-              <p className="text-xs text-gray-400 mb-1.5">Click a model to select it:</p>
-              <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-48 overflow-y-auto scrollbar-thin">
-                {discoveredModels.map((modelId) => {
-                  const isSelected = settings.model === modelId
-                  return (
-                    <button
-                      key={modelId}
-                      onClick={() => onChange({ model: modelId })}
-                      className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-2 ${
-                        isSelected
-                          ? 'bg-indigo-50 text-indigo-700 font-medium'
-                          : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <span className="truncate font-mono">{modelId}</span>
-                      {isSelected && (
-                        <svg className="w-3.5 h-3.5 flex-shrink-0 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          <DiscoveredModelList />
 
-          {/* Connected but no models returned */}
           {connStatus === OK && discoveredModels.length === 0 && (
             <p className="mt-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               Connected, but the server returned no models. Enter the model name manually below.
@@ -295,7 +422,7 @@ export default function SettingsPanel({ settings, onChange }) {
         </div>
       )}
 
-      {/* Meta base URL selector */}
+      {/* Meta API host selector */}
       {isMeta && hasBaseURLOptions && (
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">API Host</label>
@@ -370,40 +497,62 @@ export default function SettingsPanel({ settings, onChange }) {
       )}
 
       {/* Model selector — hidden for Mock */}
-      {!isMock && <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">Model</label>
-        {hasFreeTextModel ? (
-          <input
-            type="text"
-            value={settings.model || ''}
-            onChange={(e) => onChange({ model: e.target.value })}
-            placeholder={isOllama ? 'llama3.2' : 'model-name'}
-            className={`w-full text-sm border rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
-              // Highlight the model field when discovered models are available but nothing is selected
-              connStatus === OK && discoveredModels.length > 0 && !settings.model
-                ? 'border-amber-300 bg-amber-50'
-                : 'border-gray-200'
-            }`}
-          />
-        ) : (
-          <select
-            value={settings.model || ''}
-            onChange={(e) => onChange({ model: e.target.value })}
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          >
-            {(isChinese
-              ? providerMeta.subProviders?.[settings.subProvider]?.models || []
-              : providerMeta.models || []
-            ).map((m) => (
-              <option key={m} value={m}>{m.split('/').pop()}</option>
-            ))}
-          </select>
-        )}
-        {/* Hint when model field is empty and we have models to pick from */}
-        {hasFreeTextModel && connStatus === OK && discoveredModels.length > 0 && !settings.model && (
-          <p className="mt-1 text-xs text-amber-600">Select a model from the list above.</p>
-        )}
-      </div>}
+      {!isMock && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-gray-500">Model</label>
+            {/* Refresh button for all providers that support model listing */}
+            {canFetchModels && !showConnectionTest && (
+              <RefreshButton disabled={!settings.apiKey && !isOllama} />
+            )}
+          </div>
+
+          {hasFreeTextModel ? (
+            <input
+              type="text"
+              value={settings.model || ''}
+              onChange={(e) => onChange({ model: e.target.value })}
+              placeholder={isOllama ? 'llama3.2' : 'model-name'}
+              className={`w-full text-sm border rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
+                connStatus === OK && discoveredModels.length > 0 && !settings.model
+                  ? 'border-amber-300 bg-amber-50'
+                  : 'border-gray-200'
+              }`}
+            />
+          ) : (
+            <select
+              value={settings.model || ''}
+              onChange={(e) => onChange({ model: e.target.value })}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            >
+              {/* Prefer discovered models; fall back to registry static list */}
+              {(discoveredModels.length > 0
+                ? discoveredModels
+                : isChinese
+                ? providerMeta.subProviders?.[settings.subProvider]?.models || []
+                : providerMeta.models || []
+              ).map((m) => (
+                <option key={m} value={m}>{m.split('/').pop()}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Hint when free-text model field is empty with discovered models available */}
+          {hasFreeTextModel && connStatus === OK && discoveredModels.length > 0 && !settings.model && (
+            <p className="mt-1 text-xs text-amber-600">Select a model from the list above.</p>
+          )}
+
+          {/* Clickable model list for free-text providers (Ollama, Custom) */}
+          {hasFreeTextModel && <DiscoveredModelList />}
+
+          {/* Error detail for non-connection-test providers */}
+          {!showConnectionTest && connStatus === ERROR && (
+            <p className="mt-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {connError || 'Could not fetch models. Check your API key.'}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Pair count */}
       <div>
@@ -538,7 +687,7 @@ export default function SettingsPanel({ settings, onChange }) {
           <option value={5}>5 — Maximum throughput</option>
         </select>
         <p className="mt-1 text-xs text-gray-400">
-          Chunks are sent concurrently to the LLM. Higher = faster, but may trigger rate limits.
+          Chunks are sent concurrently. Higher = faster, but may trigger rate limits.
         </p>
       </div>
     </div>

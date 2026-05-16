@@ -23,8 +23,9 @@ export default class MockProvider extends LLMProvider {
     const countMatch = userMsg.match(/Generate exactly (\d+)/)
     const count = countMatch ? parseInt(countMatch[1], 10) : 5
 
-    // Extract the document text block from the prompt
-    const docMatch = userMsg.match(/DOCUMENT:\n([\s\S]*?)\n---/)
+    // Extract the document text block from the prompt.
+    // buildMessages uses "DOCUMENT:" and buildChunkMessages uses "DOCUMENT EXCERPT:"
+    const docMatch = userMsg.match(/DOCUMENT(?:\s+EXCERPT)?:\n([\s\S]*?)\n---/)
     const docText = docMatch ? docMatch[1].trim() : 'Sample content for demonstration purposes.'
 
     // Determine which styles were requested

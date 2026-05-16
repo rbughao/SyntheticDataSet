@@ -5,33 +5,28 @@ import { parseResponse, ParseError } from '../utils/parser.js'
 import { createProvider } from '../providers/index.js'
 
 // ---------------------------------------------------------------------------
-// Concurrency pool
+// Concurrency pool — browser-native "thread pool" over async I/O
 // ---------------------------------------------------------------------------
 /**
- * Run an array of async task factories with at most `concurrency` in-flight
- * simultaneously. This is the browser-native equivalent of a thread pool —
- * JavaScript is single-threaded, but concurrent Promises allow N network
- * requests to be in-flight at the same time (each awaiting its own I/O).
+ * Run taskFns with at most `concurrency` in-flight simultaneously.
+ * Each worker goroutine pulls the next unclaimed task from a shared index,
+ * so N workers saturate up to N API slots concurrently.
  *
- * @param {Array<() => Promise<any>>} taskFns  Factory functions, one per chunk
- * @param {number}                    concurrency  Max simultaneous in-flight tasks
- * @param {Function}                  onItemDone  Called as (index, value | null, error | null)
- * @param {{ current: boolean }}      cancelRef   Set .current = true to stop queueing new tasks
- * @returns {Promise<Array<{ ok: boolean, value?, error? }>>}  Indexed by original position
+ * @param {Array<() => Promise<any>>} taskFns
+ * @param {number}  concurrency  Max simultaneous in-flight requests
+ * @param {Function} onItemDone  (index, value|null, error|null) — called as each task settles
+ * @param {{ current: boolean }} cancelRef  Set .current=true to stop queuing new tasks
+ * @returns {Promise<Array<{ ok, value?, error? }>>}  Indexed by original task position
  */
 async function runConcurrent(taskFns, concurrency, onItemDone, cancelRef) {
   const results = new Array(taskFns.length).fill(null)
   let nextIndex = 0
 
-  // Each "worker" goroutine pulls the next unprocessed task from the shared queue.
-  // Multiple workers run concurrently, saturating up to `concurrency` API slots.
   async function worker() {
     while (true) {
-      // Check cancellation before pulling next task
       if (cancelRef?.current) break
       const index = nextIndex++
       if (index >= taskFns.length) break
-
       try {
         const value = await taskFns[index]()
         results[index] = { ok: true, value }
@@ -44,18 +39,28 @@ async function runConcurrent(taskFns, concurrency, onItemDone, cancelRef) {
   }
 
   const workerCount = Math.min(Math.max(1, concurrency), taskFns.length)
-  // Launch all workers simultaneously — they compete for the shared queue
   await Promise.all(Array.from({ length: workerCount }, worker))
   return results
 }
 
 // ---------------------------------------------------------------------------
-// Token budget helper
+// Helpers
 // ---------------------------------------------------------------------------
-/** Estimate how many output tokens `pairCount` pairs might need. */
+/** Estimate output token budget for `pairCount` pairs. */
 function calcMaxTokens(pairCount) {
-  // ~300 tokens per pair (generous), minimum 1024, capped at 16384
   return Math.min(Math.max(pairCount * 300, 1024), 16384)
+}
+
+/** Map a raw LLM response text into fully formed pair objects. */
+function toPairs(parsed) {
+  return parsed.map((item) => ({
+    id: crypto.randomUUID(),
+    instruction: item.instruction,
+    output: item.output,
+    type: item.type,
+    rating: null,
+    edited: false,
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -63,39 +68,54 @@ function calcMaxTokens(pairCount) {
 // ---------------------------------------------------------------------------
 export function useGenerate() {
   const [isLoading, setIsLoading] = useState(false)
-  // progress: { completed: number, total: number, pairsCount: number } | null
+  // { completed: number, total: number, pairsCount: number } | null
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState(null)
+
+  // cancelRef: set to true by cancelGeneration() to stop queuing new chunks.
   const cancelRef = useRef(false)
+
+  // generationIdRef: incremented at the start of every generate() call.
+  // Any async callback that sees a stale ID (from a previous or superseded
+  // run) discards its work silently, preventing race conditions when the user
+  // clicks Generate again before the previous run finishes.
+  const generationIdRef = useRef(0)
 
   const clearError = useCallback(() => setError(null), [])
 
-  /** Signal the concurrency pool to stop accepting new tasks after the current batch. */
   const cancelGeneration = useCallback(() => {
     cancelRef.current = true
   }, [])
 
   // ---------------------------------------------------------------------------
-  // generate() — bulk generation with chunking + parallel requests
+  // generate() — chunked, parallel generation
   // ---------------------------------------------------------------------------
-  /**
-   * @param document        Active document (full .text is used — no pre-truncation)
-   * @param settings        Current settings incl. pairCount, concurrency, providerSlug, etc.
-   * @param onPairsReceived Called once at the end with the final ordered array of all pairs
-   * @param onChunkDone     Called after each chunk with that chunk's pairs — use for live streaming
-   */
   const generate = useCallback(async (document, settings, onPairsReceived, onChunkDone) => {
     if (!document) return
+
+    // Claim a unique generation ID before any awaits (avoids reset race)
+    const myId = ++generationIdRef.current
+    cancelRef.current = false
+
     setIsLoading(true)
     setProgress(null)
     setError(null)
-    cancelRef.current = false
 
     try {
       const fullText = document.text
-      const chunks = chunkDocument(fullText, CHUNK_SIZE, CHUNK_OVERLAP)
-      const totalChunks = chunks.length
+      const rawChunks = chunkDocument(fullText, CHUNK_SIZE, CHUNK_OVERLAP)
+      const totalPairs = settings.pairCount
       const concurrency = Math.max(1, settings.concurrency || 3)
+
+      // Never request 0 pairs from a chunk: cap active chunks to totalPairs.
+      // This also guarantees basePairs >= 1.
+      const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
+      const n = chunks.length
+
+      // Distribute pairs evenly: each chunk gets basePairs, and the first
+      // extraPairs chunks each get one extra, summing to exactly totalPairs.
+      const basePairs = Math.floor(totalPairs / n)
+      const extraPairs = totalPairs % n
 
       const provider = createProvider(settings.providerSlug, {
         apiKey: settings.apiKey,
@@ -105,76 +125,39 @@ export function useGenerate() {
         subProvider: settings.subProvider,
       })
 
-      // ── Single-chunk fast path (small docs) ──────────────────────────────
-      if (totalChunks === 1) {
-        setProgress({ completed: 0, total: 1, pairsCount: 0 })
-        const { messages, temperature } = buildMessages(
-          { ...document, text: chunks[0].text },
-          settings
-        )
-        const responseText = await provider.complete(messages, {
-          model: settings.model,
-          temperature,
-          maxTokens: calcMaxTokens(settings.pairCount),
-        })
-        const parsed = parseResponse(responseText)
-        const newPairs = parsed.map((item) => ({
-          id: crypto.randomUUID(),
-          instruction: item.instruction,
-          output: item.output,
-          type: item.type,
-          rating: null,
-          edited: false,
-        }))
-        setProgress({ completed: 1, total: 1, pairsCount: newPairs.length })
-        onPairsReceived(newPairs)
-        return
-      }
-
-      // ── Multi-chunk concurrent path ───────────────────────────────────────
-      const totalPairs = settings.pairCount
-      // Pre-calculate pairs per chunk so all tasks are independent (no shared mutable counter)
-      const pairsPerChunk = Math.max(1, Math.round(totalPairs / totalChunks))
-      // Last chunk gets the remainder to hit the exact total
-      const pairsForLastChunk = Math.max(1, totalPairs - pairsPerChunk * (totalChunks - 1))
-
       // Results array indexed by chunk position — preserves document order
-      const chunkResults = new Array(totalChunks).fill(null)
+      // regardless of which chunk finishes first.
+      const chunkResults = new Array(n).fill(null)
       let completedCount = 0
       let streamedPairsCount = 0
+      let failedCount = 0
+      let lastFailError = null
 
-      setProgress({ completed: 0, total: totalChunks, pairsCount: 0 })
+      setProgress({ completed: 0, total: n, pairsCount: 0 })
 
-      // Build one task factory per chunk — closures capture `i` correctly
+      // Build one async task per chunk (closures capture `i` correctly via `map`)
       const taskFns = chunks.map((chunk, i) => async () => {
-        const isLast = i === totalChunks - 1
-        const pairsForThisChunk = isLast ? pairsForLastChunk : pairsPerChunk
-
+        const pairsForThisChunk = basePairs + (i < extraPairs ? 1 : 0)
+        // Use buildChunkMessages for ALL chunks (single or multi) so the prompt
+        // format and behaviour are identical regardless of document size.
         const { messages, temperature } = buildChunkMessages(
-          chunk, i, totalChunks, pairsForThisChunk, settings
+          chunk, i, n, pairsForThisChunk, settings
         )
-
         const responseText = await provider.complete(messages, {
           model: settings.model,
           temperature,
           maxTokens: calcMaxTokens(pairsForThisChunk),
         })
-
-        const parsed = parseResponse(responseText)
-        return parsed.map((item) => ({
-          id: crypto.randomUUID(),
-          instruction: item.instruction,
-          output: item.output,
-          type: item.type,
-          rating: null,
-          edited: false,
-        }))
+        return toPairs(parseResponse(responseText))
       })
 
       await runConcurrent(
         taskFns,
         concurrency,
         (index, pairs, err) => {
+          // Discard callbacks from superseded runs
+          if (generationIdRef.current !== myId) return
+
           completedCount++
           if (pairs && pairs.length > 0) {
             chunkResults[index] = pairs
@@ -182,25 +165,37 @@ export function useGenerate() {
             // Stream chunk pairs to the workspace as they arrive (completion order)
             onChunkDone?.(pairs)
           } else {
-            // Chunk failed — treat as empty, log, keep going
             chunkResults[index] = []
-            if (err) {
-              console.warn(`Chunk ${index + 1}/${totalChunks} failed:`, err.message)
-            }
+            if (err) { failedCount++; lastFailError = err }
+            console.warn(`Chunk ${index + 1}/${n} failed:`, err?.message)
           }
-          setProgress({
-            completed: completedCount,
-            total: totalChunks,
-            pairsCount: streamedPairsCount,
-          })
+          setProgress({ completed: completedCount, total: n, pairsCount: streamedPairsCount })
         },
         cancelRef
       )
 
-      // Flatten in document order (chunk index, not completion order)
+      // Bail out if this run was superseded by a newer Generate call
+      if (generationIdRef.current !== myId) return
+
+      // Bail out if cancelled — keep whatever pairs streamed via onChunkDone
+      if (cancelRef.current) return
+
+      // C-2 fix: surface an error when every chunk failed instead of silently
+      // returning 0 pairs with no feedback.
+      if (failedCount > 0 && failedCount === n) {
+        throw new Error(
+          `All ${n} chunk${n !== 1 ? 's' : ''} failed. ` +
+          `Last error: ${lastFailError?.message || 'unknown error'}`
+        )
+      }
+
+      // Final ordered result (chunk index order, not completion order)
       const allPairs = chunkResults.flatMap((r) => r || [])
       onPairsReceived(allPairs)
     } catch (err) {
+      // Discard errors from superseded runs
+      if (generationIdRef.current !== myId) return
+
       if (err instanceof ParseError) {
         setError({ type: 'parse', message: err.message, rawText: err.rawText })
       } else if (
@@ -212,13 +207,16 @@ export function useGenerate() {
         setError({ type: 'api', message: err.message })
       }
     } finally {
-      setIsLoading(false)
-      setProgress(null)
+      // Only this run should reset loading state — a superseding run owns isLoading
+      if (generationIdRef.current === myId) {
+        setIsLoading(false)
+        setProgress(null)
+      }
     }
   }, [])
 
   // ---------------------------------------------------------------------------
-  // regeneratePair() — single-pair targeted regeneration (unchanged flow)
+  // regeneratePair() — single-pair targeted replacement (unchanged flow)
   // ---------------------------------------------------------------------------
   const regeneratePair = useCallback(async (pair, document, settings, onPairRegenerated) => {
     const targetSettings = {
@@ -227,7 +225,7 @@ export function useGenerate() {
       styles: [pair.type === 'instruction' ? 'instruction' : 'factual'],
     }
 
-    // For single-pair regeneration, use just the first chunk for focused context
+    // For single-pair regeneration, use the first chunk for focused context
     const chunks = chunkDocument(document.text, CHUNK_SIZE, CHUNK_OVERLAP)
     const docForPrompt = { ...document, text: chunks[0].text }
     const { messages, temperature } = buildMessages(docForPrompt, targetSettings)

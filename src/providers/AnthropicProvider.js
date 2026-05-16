@@ -1,4 +1,5 @@
 import LLMProvider from './LLMProvider.js'
+import { proxyFetch } from '../utils/corsProxy.js'
 
 /**
  * Adapter for Anthropic's Messages API.
@@ -39,7 +40,10 @@ export default class AnthropicProvider extends LLMProvider {
 
     let response
     try {
-      response = await fetch(url, {
+      // Use proxyFetch so that in dev mode requests route through the Vite
+      // CORS proxy (same as every other provider) rather than hitting the
+      // browser's CORS restriction directly.
+      response = await proxyFetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

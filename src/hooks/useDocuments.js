@@ -27,12 +27,6 @@ function docsReducer(state, action) {
       return { ...state, error: null }
     case 'SET_LOADING':
       return { ...state, loading: action.value }
-    case 'TOGGLE_TRUNCATE': {
-      const docs = state.documents.map((d) =>
-        d.id === action.id ? { ...d, autoTruncate: !d.autoTruncate } : d
-      )
-      return { ...state, documents: docs }
-    }
     default:
       return state
   }
@@ -55,7 +49,6 @@ export function useDocuments() {
     size: raw.size,
     sizeFormatted: raw.sizeFormatted,
     charCount: raw.charCount,
-    autoTruncate: raw.charCount > CHAR_LIMIT,
   })
 
   const addFile = useCallback(async (file) => {
@@ -88,10 +81,6 @@ export function useDocuments() {
     dispatch({ type: 'CLEAR_ERROR' })
   }, [])
 
-  const toggleAutoTruncate = useCallback((id) => {
-    dispatch({ type: 'TOGGLE_TRUNCATE', id })
-  }, [])
-
   const activeDocument = state.documents.find((d) => d.id === state.activeDocumentId) ?? null
 
   return {
@@ -105,7 +94,6 @@ export function useDocuments() {
     removeDocument,
     setActiveDocument,
     clearError,
-    toggleAutoTruncate,
     CHAR_LIMIT,
   }
 }

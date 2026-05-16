@@ -55,6 +55,12 @@ export default class OpenAICompatibleProvider extends LLMProvider {
     if (!response.ok) await this._throwHttpError(response)
 
     const data = await response.json()
-    return data.choices[0].message.content
+    const content = data?.choices?.[0]?.message?.content
+    if (content == null) {
+      throw new Error(
+        `Empty response from ${this.constructor.name}: ${JSON.stringify(data).slice(0, 200)}`
+      )
+    }
+    return content
   }
 }
