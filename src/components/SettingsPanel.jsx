@@ -519,6 +519,28 @@ export default function SettingsPanel({ settings, onChange }) {
           className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
         />
       </div>
+
+      {/* Parallel chunk requests */}
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">
+          Parallel requests{' '}
+          <span className="text-gray-400 font-normal">(large docs)</span>
+        </label>
+        <select
+          value={settings.concurrency || 3}
+          onChange={(e) => onChange({ concurrency: Number(e.target.value) })}
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          <option value={1}>1 — Sequential (avoid rate limits)</option>
+          <option value={2}>2 — Conservative</option>
+          <option value={3}>3 — Balanced (default)</option>
+          <option value={4}>4 — Fast</option>
+          <option value={5}>5 — Maximum throughput</option>
+        </select>
+        <p className="mt-1 text-xs text-gray-400">
+          Chunks are sent concurrently to the LLM. Higher = faster, but may trigger rate limits.
+        </p>
+      </div>
     </div>
   )
 }

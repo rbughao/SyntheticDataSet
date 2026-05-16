@@ -22,7 +22,7 @@ export default class AnthropicProvider extends LLMProvider {
   }
 
   async complete(messages, generationSettings = {}) {
-    const { model, temperature } = generationSettings
+    const { model, temperature, maxTokens } = generationSettings
     const url = `${this.baseURL}/v1/messages`
 
     // Anthropic splits the system role out of the messages array
@@ -31,7 +31,7 @@ export default class AnthropicProvider extends LLMProvider {
 
     const body = {
       model: model || this.settings.model || 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      max_tokens: maxTokens || 4096,
       system: systemMessage?.content || '',
       messages: userMessages,
       temperature: temperature ?? 0.7,

@@ -15,7 +15,7 @@ export default class GoogleProvider extends LLMProvider {
   static slug = 'google'
 
   async complete(messages, generationSettings = {}) {
-    const { model, temperature } = generationSettings
+    const { model, temperature, maxTokens } = generationSettings
     const resolvedModel = model || this.settings.model || 'gemini-2.5-pro'
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}:generateContent?key=${this.apiKey}`
 
@@ -32,7 +32,7 @@ export default class GoogleProvider extends LLMProvider {
       })),
       generationConfig: {
         temperature: temperature ?? 0.7,
-        maxOutputTokens: 4096,
+        maxOutputTokens: maxTokens || 4096,
       },
     }
 

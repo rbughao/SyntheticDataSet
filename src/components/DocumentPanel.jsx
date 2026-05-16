@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { estimateChunks, CHUNK_SIZE } from '../utils/chunker.js'
 
 const PREVIEW_LENGTH = 500
 const CHAR_LIMIT = 10000
@@ -19,7 +20,6 @@ export default function DocumentPanel({
   onRemove,
   onSetActive,
   onClearError,
-  onToggleAutoTruncate,
 }) {
   const [activeTab, setActiveTab] = useState('upload')
   const [pasteText, setPasteText] = useState('')
@@ -188,20 +188,21 @@ export default function DocumentPanel({
       {/* Active document preview */}
       {activeDoc && (
         <div className="px-4 pb-3">
-          {/* Long doc warning */}
+          {/* Long doc info */}
           {activeDoc.charCount > CHAR_LIMIT && (
-            <div className="mb-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800">
-              <p className="font-semibold mb-1">Document is long ({activeDoc.charCount.toLocaleString()} chars)</p>
-              <p className="mb-1.5">Generation uses the first 6,000 characters.</p>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={activeDoc.autoTruncate}
-                  onChange={() => onToggleAutoTruncate(activeDoc.id)}
-                  className="w-3.5 h-3.5 text-amber-600 rounded border-amber-300"
-                />
-                Auto-truncate enabled
-              </label>
+            <div className="mb-2 bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-xs text-blue-800">
+              <p className="font-semibold mb-1">
+                Large document — {activeDoc.charCount.toLocaleString()} chars
+              </p>
+              {(() => {
+                const chunkCount = estimateChunks(activeDoc.text, CHUNK_SIZE)
+                return (
+                  <p>
+                    Will be split into ~{chunkCount} chunk{chunkCount !== 1 ? 's' : ''} and processed
+                    in parallel. Pairs are distributed evenly across chunks for full coverage.
+                  </p>
+                )
+              })()}
             </div>
           )}
 

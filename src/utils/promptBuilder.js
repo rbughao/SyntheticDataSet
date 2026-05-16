@@ -17,8 +17,63 @@ const DIFFICULTY_GUIDANCE = {
 }
 
 /**
- * Build the messages array for any LLM provider.
- * Returns [{ role: 'system', content }, { role: 'user', content }].
+ * Build messages for a single document chunk (multi-chunk generation path).
+ * pairsForChunk: how many pairs to request from this excerpt.
+ * chunkIndex / totalChunks: position context included in the prompt.
+ */
+export function buildChunkMessages(chunk, chunkIndex, totalChunks, pairsForChunk, settings) {
+  const { styles, difficulty, domainTag, temperatureHint } = settings
+
+  const styleList = styles.map((s) => STYLE_DESCRIPTIONS[s]).join('\n  - ')
+  const difficultyGuide = DIFFICULTY_GUIDANCE[difficulty] || DIFFICULTY_GUIDANCE.intermediate
+  const domainNote = domainTag ? `Domain/context tag: "${domainTag}".` : ''
+
+  const systemPrompt = `You are a dataset generation assistant for AI fine-tuning.
+
+Your task: read the provided document excerpt and generate high-quality question-answer pairs for supervised fine-tuning of language models.
+
+CRITICAL OUTPUT RULE: Return ONLY a raw JSON array. Do NOT include markdown code fences (\`\`\`json). Do NOT include any explanation, preamble, or text before or after the array.
+
+Output format:
+[
+  { "instruction": "<the question or task prompt>", "output": "<the complete answer>", "type": "factual|instruction" }
+]
+
+Quality requirements:
+- Every answer must be complete, specific, and grounded in this excerpt only. Do not hallucinate.
+- Never reference the source (avoid "According to the document…"). Write answers as standalone knowledge.
+- Vary question phrasing. Avoid starting every question with the same word.
+- The "type" field must be exactly "factual" or "instruction".`
+
+  const userPrompt = `Generate exactly ${pairsForChunk} question-answer pairs from this document excerpt (part ${chunkIndex + 1} of ${totalChunks}).
+
+Style(s) to use:
+  - ${styleList}
+${styles.length > 1 ? 'Mix both styles across the pairs.' : ''}
+
+Difficulty level: ${difficulty}
+${difficultyGuide}
+${domainNote}
+
+---
+DOCUMENT EXCERPT:
+${chunk.text}
+---
+
+Remember: return ONLY the raw JSON array, nothing else.`
+
+  return {
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: TEMPERATURE_MAP[temperatureHint] ?? 0.7,
+  }
+}
+
+/**
+ * Build the messages array for any LLM provider (single-document path).
+ * Returns { messages, temperature }.
  * The temperature float is returned separately for the caller to pass to complete().
  */
 export function buildMessages(document, settings) {

@@ -17,7 +17,7 @@ export default class OpenAICompatibleProvider extends LLMProvider {
   }
 
   async complete(messages, generationSettings = {}) {
-    const { model, temperature } = generationSettings
+    const { model, temperature, maxTokens } = generationSettings
     // Strip trailing slash so user-entered URLs like "http://host/v1/" don't produce double slashes
     const base = (this.baseURL || '').replace(/\/+$/, '')
     const url = `${base}/chat/completions`
@@ -32,7 +32,7 @@ export default class OpenAICompatibleProvider extends LLMProvider {
       model: model || this.settings.model,
       messages,
       temperature: temperature ?? 0.7,
-      max_tokens: 4096,
+      max_tokens: maxTokens || 4096,
     }
 
     // Some models (e.g. o3-mini) reject the temperature field

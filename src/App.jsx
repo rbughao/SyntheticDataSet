@@ -72,6 +72,7 @@ function makeDefaultSettings() {
     difficulty: 'intermediate',
     domainTag: '',
     temperatureHint: 'balanced',
+    concurrency: 3,
   }
 }
 
@@ -90,10 +91,17 @@ export default function App() {
     removeDocument,
     setActiveDocument,
     clearError: clearDocError,
-    toggleAutoTruncate,
   } = useDocuments()
 
-  const { generate, regeneratePair, isLoading, error: genError, clearError: clearGenError } = useGenerate()
+  const {
+    generate,
+    regeneratePair,
+    isLoading,
+    progress,
+    error: genError,
+    clearError: clearGenError,
+    cancelGeneration,
+  } = useGenerate()
 
   const [pairs, setPairs] = useState([])
   const [selectedIds, setSelectedIds] = useState(new Set())
@@ -126,9 +134,20 @@ export default function App() {
   async function handleGenerate() {
     if (!activeDocument) return
     clearGenError()
-    await generate(activeDocument, settings, (newPairs) => {
-      setPairs((prev) => [...prev, ...newPairs])
-    })
+    // Clear existing pairs immediately so the workspace is clean
+    setPairs([])
+    await generate(
+      activeDocument,
+      settings,
+      // onPairsReceived: final ordered result — replaces the streamed pairs
+      (allPairs) => {
+        setPairs(allPairs)
+      },
+      // onChunkDone: stream pairs to workspace as each chunk finishes
+      (chunkPairs) => {
+        setPairs((prev) => [...prev, ...chunkPairs])
+      }
+    )
   }
 
   // Regenerate single pair in place
@@ -195,13 +214,14 @@ export default function App() {
           onRemove={removeDocument}
           onSetActive={setActiveDocument}
           onClearError={clearDocError}
-          onToggleAutoTruncate={toggleAutoTruncate}
         />
         <SettingsPanel settings={settings} onChange={updateSettings} />
         <GenerateButton
           isLoading={isLoading}
           disabled={!activeDocument}
           onClick={handleGenerate}
+          onCancel={cancelGeneration}
+          progress={progress}
         />
       </div>
 
