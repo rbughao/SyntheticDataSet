@@ -66,7 +66,7 @@ export default function DocumentPanel({
       {/* Header */}
       <div className="px-4 pt-4 pb-2">
         <h1 className="text-base font-bold text-gray-900">Synthetic Dataset Generator</h1>
-        <p className="text-xs text-gray-400 mt-0.5">but BughaoLab</p>
+        <p className="text-xs text-gray-400 mt-0.5">by BughaoLab</p>
       </div>
 
       {/* Tabs */}
