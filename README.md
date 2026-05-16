@@ -1,4 +1,4 @@
-# Synthetic Dataset Generation
+# Synthetic Dataset Generator by BughaoLabs
 
 A browser-based tool that turns any document into fine-tuning Q&A pairs using the LLM provider of your choice. Upload a file, pick a provider, click **Generate** — export as JSONL, JSON, or CSV.
 
