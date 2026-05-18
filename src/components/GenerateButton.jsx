@@ -4,15 +4,12 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
   // Large output mode: pairs bypass React state and go into a ref buffer
   const isLargeOutput = largeOutputCount !== undefined
 
-  // File-level progress (multi-document runs)
+  // Multi-file parallel run (fileTotal present in progress)
   const isMultiFile = progress && progress.fileTotal > 1
-  const filePct = isMultiFile
-    ? Math.round((progress.fileIndex / progress.fileTotal) * 100)
-    : null
 
-  // Chunk-level progress within the current file
-  const isMultiChunk = progress && progress.total > 1
-  const chunkPct = isMultiChunk
+  // Overall chunk progress across all files
+  const hasChunkProgress = progress && progress.total > 1
+  const chunkPct = hasChunkProgress
     ? Math.round((progress.completed / progress.total) * 100)
     : null
 
@@ -24,8 +21,8 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
   const loadingLabel = isLargeOutput
     ? `${largeOutputCount.toLocaleString()} pairs buffered…`
     : isMultiFile
-    ? `File ${progress.fileIndex + 1} / ${progress.fileTotal}`
-    : isMultiChunk
+    ? `Processing ${progress.fileTotal} files in parallel…`
+    : hasChunkProgress
     ? `Chunk ${progress.completed} / ${progress.total}`
     : 'Generating…'
 
@@ -59,23 +56,11 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
         )}
       </button>
 
-      {/* File-level progress bar (only shown for multi-document runs) */}
-      {isMultiFile && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span className="truncate max-w-[160px]" title={progress.fileName}>
-              📄 {progress.fileName}
-            </span>
-            <span className="flex-shrink-0 ml-2 font-medium">
-              {progress.fileIndex + 1}/{progress.fileTotal} files
-            </span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-1 overflow-hidden">
-            <div
-              className="bg-indigo-300 h-1 rounded-full transition-all duration-500"
-              style={{ width: `${filePct}%` }}
-            />
-          </div>
+      {/* Multi-file parallel info strip */}
+      {isMultiFile && !isLargeOutput && (
+        <div className="flex items-center justify-between text-xs text-gray-500 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5">
+          <span>⚡ Parallel processing</span>
+          <span className="font-medium text-indigo-600">{progress.fileTotal} files</span>
         </div>
       )}
 
@@ -89,8 +74,8 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
         </div>
       )}
 
-      {/* Chunk-level progress bar (within the current file, hidden in large output mode) */}
-      {isMultiChunk && !isLargeOutput && (
+      {/* Overall chunk progress bar (all files combined, hidden in large output mode) */}
+      {hasChunkProgress && !isLargeOutput && (
         <div className="space-y-1">
           <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
             <div

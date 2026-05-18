@@ -696,10 +696,12 @@ export default function SettingsPanel({ settings, onChange }) {
           <option value={2}>2 — Conservative</option>
           <option value={3}>3 — Balanced (default)</option>
           <option value={4}>4 — Fast</option>
-          <option value={5}>5 — Maximum throughput</option>
+          <option value={5}>5 — Aggressive</option>
+          <option value={8}>8 — High (local/Ollama)</option>
+          <option value={10}>10 — Maximum (local only)</option>
         </select>
         <p className="mt-1 text-xs text-gray-400">
-          Chunks are sent concurrently. Higher = faster, but may trigger rate limits.
+          All files process in parallel — chunks share one pool. Higher = faster, but cloud APIs may rate-limit.
         </p>
       </div>
     </div>
