@@ -1,5 +1,8 @@
-export default function GenerateButton({ isLoading, onClick, onCancel, disabled, progress, documentCount = 1 }) {
+export default function GenerateButton({ isLoading, onClick, onCancel, disabled, progress, documentCount = 1, largeOutputCount }) {
   const isDisabled = isLoading || disabled
+
+  // Large output mode: pairs bypass React state and go into a ref buffer
+  const isLargeOutput = largeOutputCount !== undefined
 
   // File-level progress (multi-document runs)
   const isMultiFile = progress && progress.fileTotal > 1
@@ -18,7 +21,9 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
     ? `Process ${documentCount} Files`
     : 'Generate Dataset'
 
-  const loadingLabel = isMultiFile
+  const loadingLabel = isLargeOutput
+    ? `${largeOutputCount.toLocaleString()} pairs buffered…`
+    : isMultiFile
     ? `File ${progress.fileIndex + 1} / ${progress.fileTotal}`
     : isMultiChunk
     ? `Chunk ${progress.completed} / ${progress.total}`
@@ -74,8 +79,18 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
         </div>
       )}
 
-      {/* Chunk-level progress bar (within the current file) */}
-      {isMultiChunk && (
+      {/* Large output mode: buffer counter (replaces pair cards) */}
+      {isLargeOutput && (
+        <div className="flex items-center justify-between text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <span>Writing to file — no preview</span>
+          <span className="font-semibold text-indigo-600">
+            {largeOutputCount.toLocaleString()} pairs
+          </span>
+        </div>
+      )}
+
+      {/* Chunk-level progress bar (within the current file, hidden in large output mode) */}
+      {isMultiChunk && !isLargeOutput && (
         <div className="space-y-1">
           <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
             <div

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -22,9 +22,11 @@ import GenerateButton from './components/GenerateButton.jsx'
 import PairCard from './components/PairCard.jsx'
 import WorkspaceHeader from './components/WorkspaceHeader.jsx'
 import ExportModal from './components/ExportModal.jsx'
+import LargeOutputModal from './components/LargeOutputModal.jsx'
 
 import { useDocuments } from './hooks/useDocuments.js'
 import { useGenerate } from './hooks/useGenerate.js'
+import { exportBufferAs } from './hooks/useExport.js'
 import { PROVIDERS } from './providers/index.js'
 
 // ---------------------------------------------------------------------------
@@ -110,6 +112,15 @@ export default function App() {
   const [settings, setSettings] = useState(makeDefaultSettings)
   const [showExportModal, setShowExportModal] = useState(false)
 
+  // ── Large output mode (pairCount > 1000) ───────────────────────────────────
+  // Pairs bypass React state entirely to avoid re-rendering thousands of cards.
+  const isLargeOutputMode = settings.pairCount > 1000
+  const [showLargeOutputModal, setShowLargeOutputModal] = useState(false)
+  const [largeOutputFormat, setLargeOutputFormat] = useState(null)
+  const [largeOutputCount, setLargeOutputCount] = useState(0)
+  const [largeOutputComplete, setLargeOutputComplete] = useState(false)
+  const largeBufferRef = useRef([])
+
   // Merge partial settings updates
   const updateSettings = useCallback((changes) => {
     setSettings((prev) => ({ ...prev, ...changes }))
@@ -135,7 +146,15 @@ export default function App() {
   async function handleGenerate() {
     if (!documents.length) return
     clearGenError()
-    // Clear the workspace so we start fresh for this run
+    setLargeOutputComplete(false)
+
+    // Large output mode: show format picker modal instead of generating directly
+    if (isLargeOutputMode) {
+      setShowLargeOutputModal(true)
+      return
+    }
+
+    // Normal mode — clear workspace and stream pairs into React state
     setPairs([])
 
     await generateAll(
@@ -154,6 +173,35 @@ export default function App() {
         ])
       }
     )
+  }
+
+  // Large output mode: user confirmed format — buffer into ref, download on completion
+  async function handleLargeOutputConfirm(format) {
+    setLargeOutputFormat(format)
+    setShowLargeOutputModal(false)
+    largeBufferRef.current = []
+    setLargeOutputCount(0)
+    setPairs([])
+    clearGenError()
+
+    await generateAll(
+      documents,
+      settings,
+      // onChunkPairs: push to ref buffer only — no React state, no re-renders
+      (chunkPairs) => {
+        largeBufferRef.current.push(...chunkPairs)
+        setLargeOutputCount(largeBufferRef.current.length)
+      },
+      // onFileDone: order doesn't matter for a file download — no-op
+      () => {}
+    )
+
+    // Trigger browser download when generation completes (or was cancelled mid-run)
+    if (largeBufferRef.current.length > 0) {
+      exportBufferAs(format, largeBufferRef.current)
+      setLargeOutputComplete(true)
+    }
+    largeBufferRef.current = []
   }
 
   // Regenerate single pair in place
@@ -230,6 +278,7 @@ export default function App() {
           onCancel={cancelGeneration}
           progress={progress}
           documentCount={documents.length}
+          largeOutputCount={isLargeOutputMode && isLoading ? largeOutputCount : undefined}
         />
       </div>
 
@@ -251,6 +300,8 @@ export default function App() {
           onDeleteSelected={deleteSelected}
           onFilterChange={setFilterRating}
           onExport={() => setShowExportModal(true)}
+          isLargeOutputMode={isLargeOutputMode}
+          isGenerating={isLoading}
         />
 
         <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -301,8 +352,49 @@ export default function App() {
             </div>
           )}
 
-          {/* Loading skeleton */}
-          {isLoading && (
+          {/* Large output mode — in-progress panel (replaces pair cards) */}
+          {isLargeOutputMode && isLoading && (
+            <div className="flex flex-col items-center justify-center h-full text-center py-20 gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center">
+                <svg className="w-8 h-8 text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </div>
+              <p className="text-lg font-semibold text-gray-700">
+                {largeOutputCount.toLocaleString()} pairs generated
+              </p>
+              <p className="text-sm text-gray-400 max-w-xs">
+                Pairs are being written to a <strong>{largeOutputFormat?.toUpperCase()}</strong> file.
+                The workspace is intentionally blank to keep the UI responsive.
+              </p>
+            </div>
+          )}
+
+          {/* Large output mode — success panel */}
+          {isLargeOutputMode && largeOutputComplete && !isLoading && (
+            <div className="flex flex-col items-center justify-center h-full text-center py-20 gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center">
+                <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-lg font-semibold text-gray-700">Download complete</p>
+              <p className="text-sm text-gray-400 max-w-xs">
+                {largeOutputCount.toLocaleString()} pairs saved as <strong>{largeOutputFormat?.toUpperCase()}</strong>.
+                Upload new documents or adjust settings to generate another batch.
+              </p>
+              <button
+                onClick={() => setLargeOutputComplete(false)}
+                className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+              >
+                Start over
+              </button>
+            </div>
+          )}
+
+          {/* Loading skeleton — normal mode only */}
+          {!isLargeOutputMode && isLoading && (
             <div className="space-y-3 mb-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 animate-pulse">
@@ -320,8 +412,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Pair cards */}
-          {filteredPairs.length > 0 ? (
+          {/* Pair cards — hidden during large output mode */}
+          {!isLargeOutputMode && filteredPairs.length > 0 ? (
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -345,7 +437,7 @@ export default function App() {
                 ))}
               </SortableContext>
             </DndContext>
-          ) : !isLoading && (
+          ) : (!isLoading && !isLargeOutputMode && !largeOutputComplete) && (
             /* Empty state */
             <div className="flex flex-col items-center justify-center h-full text-center py-20">
               <div className="w-20 h-20 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
@@ -371,6 +463,15 @@ export default function App() {
         <ExportModal
           pairs={pairs}
           onClose={() => setShowExportModal(false)}
+        />
+      )}
+
+      {/* Large output format picker modal */}
+      {showLargeOutputModal && (
+        <LargeOutputModal
+          pairCount={settings.pairCount}
+          onConfirm={handleLargeOutputConfirm}
+          onCancel={() => setShowLargeOutputModal(false)}
         />
       )}
     </div>

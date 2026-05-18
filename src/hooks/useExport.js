@@ -26,6 +26,38 @@ function escapeCSVValue(value) {
   return str
 }
 
+/**
+ * Export a large buffer of pairs directly to a file without going through
+ * React state. Used by large output mode (pairCount > 1000) where holding
+ * thousands of pairs in useState would freeze the UI.
+ *
+ * Reuses the same cleanPair / triggerDownload / escapeCSVValue helpers as
+ * the normal export flow so the output format is identical.
+ */
+export function exportBufferAs(format, pairs) {
+  const ts = Date.now()
+  if (format === 'jsonl') {
+    triggerDownload(
+      pairs.map((p) => JSON.stringify(cleanPair(p))).join('\n'),
+      `dataset_${ts}.jsonl`,
+      'application/jsonl'
+    )
+  } else if (format === 'json') {
+    triggerDownload(
+      JSON.stringify(pairs.map(cleanPair), null, 2),
+      `dataset_${ts}.json`,
+      'application/json'
+    )
+  } else {
+    const header = 'instruction,output,type'
+    const rows = pairs.map((p) => {
+      const c = cleanPair(p)
+      return [escapeCSVValue(c.instruction), escapeCSVValue(c.output), escapeCSVValue(c.type)].join(',')
+    })
+    triggerDownload([header, ...rows].join('\n'), `dataset_${ts}.csv`, 'text/csv')
+  }
+}
+
 export function useExport() {
   const timestamp = () => Date.now()
 

@@ -570,15 +570,20 @@ export default function SettingsPanel({ settings, onChange }) {
         <input
           type="range"
           min="5"
-          max="1000"
+          max="10000"
           value={settings.pairCount}
           onChange={(e) => onChange({ pairCount: Number(e.target.value) })}
           className="w-full accent-indigo-600"
         />
         <div className="flex justify-between text-xs text-gray-400 mt-0.5">
           <span>5</span>
-          <span>1000</span>
+          <span>10 000</span>
         </div>
+        {settings.pairCount > 1000 && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+            ⚡ Large output mode — pairs will be saved directly to a file instead of displayed on screen to prevent UI freezing.
+          </p>
+        )}
       </div>
 
       {/* Style */}

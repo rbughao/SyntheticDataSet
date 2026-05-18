@@ -12,12 +12,18 @@ export default function WorkspaceHeader({
   onDeleteSelected,
   onFilterChange,
   onExport,
+  isLargeOutputMode = false,
+  isGenerating = false,
 }) {
   const providerMeta = PROVIDERS[providerSlug] || {}
   const displayModel = model ? model.split('/').pop() : ''
 
   const allSelected = pairs.length > 0 && selectedIds.size === pairs.length
   const someSelected = selectedIds.size > 0
+
+  // In large output mode while generating, hide filter/export/bulk controls —
+  // there are no pair cards to interact with.
+  const hideControls = isLargeOutputMode && isGenerating
 
   return (
     <div className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3">
@@ -28,7 +34,9 @@ export default function WorkspaceHeader({
             {documentName || 'No document loaded'}
           </h2>
           <p className="text-xs text-gray-400">
-            {pairs.length} {pairs.length === 1 ? 'pair' : 'pairs'}
+            {isLargeOutputMode && isGenerating
+              ? 'Large output mode — pairs are written directly to file'
+              : `${pairs.length} ${pairs.length === 1 ? 'pair' : 'pairs'}`}
           </p>
         </div>
 
@@ -40,20 +48,22 @@ export default function WorkspaceHeader({
           </span>
         )}
 
-        {/* Filter */}
-        <select
-          value={filterRating}
-          onChange={(e) => onFilterChange(e.target.value)}
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        >
-          <option value="all">All pairs</option>
-          <option value="up">👍 Thumbs up</option>
-          <option value="down">👎 Thumbs down</option>
-          <option value="unrated">Unrated</option>
-        </select>
+        {/* Filter — hidden during large output generation */}
+        {!hideControls && (
+          <select
+            value={filterRating}
+            onChange={(e) => onFilterChange(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          >
+            <option value="all">All pairs</option>
+            <option value="up">👍 Thumbs up</option>
+            <option value="down">👎 Thumbs down</option>
+            <option value="unrated">Unrated</option>
+          </select>
+        )}
 
-        {/* Export button */}
-        {pairs.length > 0 && (
+        {/* Export button — hidden during large output generation */}
+        {!hideControls && pairs.length > 0 && (
           <button
             onClick={onExport}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -66,8 +76,8 @@ export default function WorkspaceHeader({
         )}
       </div>
 
-      {/* Bulk actions bar — visible only when there are pairs */}
-      {pairs.length > 0 && (
+      {/* Bulk actions bar — hidden during large output generation */}
+      {!hideControls && pairs.length > 0 && (
         <div className="flex items-center gap-3 mt-2 pt-2 border-t border-gray-100">
           <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
             <input
