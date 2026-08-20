@@ -172,6 +172,14 @@
 /* Auto-resize textarea baseline */
 textarea { resize: none; overflow: hidden; }
 
+/* URLs and endpoint strings have no spaces, so they set a huge min-content
+   width and blow out their container. `anywhere` (unlike break-word) also
+   shrinks min-content, which is what keeps flex children in bounds. */
+.break-url {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* Native controls follow the theme instead of rendering light-on-dark */
 select option { background: rgb(var(--surface)); color: rgb(var(--ink)); }
 

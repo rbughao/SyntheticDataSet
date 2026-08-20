@@ -322,7 +322,16 @@ export default function SettingsPanel({ settings, onChange }) {
       {isAnthropic && (
         <div className="bg-warn-soft border border-warn-line rounded-lg p-3 text-xs text-warn-ink">
           <p className="font-semibold mb-1">⚠️ CORS restriction</p>
-          <p>Anthropic's API blocks direct browser requests. Enter a CORS proxy URL below (e.g. <code className="bg-warn-soft px-1 rounded">http://localhost:8080/https://api.anthropic.com</code>) or use Google Gemini / Ollama instead.</p>
+          <p className="break-url">
+            Anthropic's API blocks direct browser requests. Enter a CORS proxy URL
+            below, or use Google Gemini / Ollama instead.
+          </p>
+          <p className="mt-1.5 text-warn-ink/80">
+            With <code className="font-mono">cors-anywhere</code>, prefix the target:
+          </p>
+          <code className="mt-1 block break-url font-mono bg-warn-soft/60 rounded px-1.5 py-1 leading-relaxed">
+            http://localhost:8080/https://api.anthropic.com
+          </code>
         </div>
       )}
 
@@ -335,9 +344,12 @@ export default function SettingsPanel({ settings, onChange }) {
             value={settings.proxyBaseUrl || ''}
             onChange={(e) => onChange({ proxyBaseUrl: e.target.value })}
             onBlur={(e) => handleProxyBaseUrlBlur(e.target.value)}
-            placeholder="http://localhost:8080/https://api.anthropic.com"
+            placeholder="https://api.anthropic.com"
             className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
           />
+          <p className="mt-1 text-xs text-ink-3 break-url">
+            <code className="font-mono">/v1/messages</code> is appended to whatever you enter.
+          </p>
         </div>
       )}
 
@@ -422,7 +434,7 @@ export default function SettingsPanel({ settings, onChange }) {
           </div>
 
           {connStatus === ERROR && (
-            <p className="mt-1.5 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2">
+            <p className="mt-1.5 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2 break-url">
               {connError || 'Could not reach the endpoint. Check the URL and that the server is running.'}
             </p>
           )}
@@ -554,7 +566,7 @@ export default function SettingsPanel({ settings, onChange }) {
 
           {/* Error detail for non-connection-test providers */}
           {!showConnectionTest && connStatus === ERROR && (
-            <p className="mt-1.5 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2">
+            <p className="mt-1.5 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2 break-url">
               {connError || 'Could not fetch models. Check your API key.'}
             </p>
           )}

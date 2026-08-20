@@ -113,6 +113,13 @@ const corsProxyPlugin = {
 
 export default defineConfig({
   plugins: [react(), corsProxyPlugin],
+  server: {
+    // Honour an assigned PORT so tooling can place the dev server on a free
+    // port; falls back to Vite's default when nothing is set. Nothing in this
+    // app is tied to a specific port — the CORS proxy is same-origin via a
+    // relative path, and there are no OAuth callbacks or webhooks.
+    port: Number(process.env.PORT) || 5173,
+  },
   optimizeDeps: {
     // pdfjs-dist ships its own worker; pre-bundling it corrupts the worker URL
     exclude: ['pdfjs-dist'],
