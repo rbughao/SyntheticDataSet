@@ -6,6 +6,13 @@ A browser-based tool that turns documents, web pages, ebooks, spreadsheets, and 
 
 ![Review workspace](docs/screenshots/03-review-workspace.png)
 
+<details>
+<summary><b>Dark mode</b> — click to expand</summary>
+
+![Review workspace in dark mode](docs/screenshots/03b-review-workspace-dark.png)
+
+</details>
+
 ---
 
 ## What it does
@@ -62,6 +69,23 @@ If a file parses but yields no usable text — most often a **scanned PDF with n
 Every run shows what it will cost and how long it will take *before* you click Generate — chunk count, token estimates, wall time, and USD based on a per-model price table. Local providers show **Free**; runs above $5 get a warning.
 
 ![Pre-flight estimate](docs/screenshots/02-preflight-estimate.png)
+
+### Interface
+
+The UI is built on a semantic design-token system — every colour is a CSS variable, so light and dark are two sets of values rather than two sets of class names.
+
+- **Light, dark, and system themes.** The toggle cycles between them; `system` follows the OS setting live, and the choice persists. The stored theme is applied before React mounts, so dark-mode users get no white flash on load.
+- **Editorial typography.** Generated questions are set in a serif display face at a larger size, because reading and judging model output is the app's actual work. All faces are system fonts — no webfont, nothing fetched at runtime.
+- **Keyboard shortcuts:**
+
+| Shortcut | Action |
+|---|---|
+| `⌘/Ctrl` + `K` or `/` | Focus search |
+| `⌘/Ctrl` + `Enter` | Generate |
+| `⌘/Ctrl` + `E` | Open export |
+| `Esc` | Close modal, or clear search |
+
+- Visible focus rings on every interactive element, and `prefers-reduced-motion` is respected.
 
 ### Review workspace
 - Editable instruction and output textareas (auto-resize)
@@ -232,6 +256,7 @@ Use the **Test** button to verify connectivity and fetch available models. In de
 
 ```
 src/
+├── index.css                      # Design tokens (light + dark), base styles
 ├── App.jsx                        # Central state, persistence, filtering, dnd wiring
 ├── components/
 │   ├── DocumentPanel.jsx          # Upload, paste, document list with per-file status
@@ -239,6 +264,7 @@ src/
 │   ├── PreflightEstimate.jsx      # Cost / token / duration estimate
 │   ├── GenerateButton.jsx         # Trigger, progress bars, cancel
 │   ├── PairCard.jsx               # Editable Q&A card with quality + duplicate badges
+│   ├── ThemeToggle.jsx            # Light / dark / system cycle
 │   ├── VirtualPairList.jsx        # Windowed list for large datasets
 │   ├── WorkspaceHeader.jsx        # Search, filters, bulk actions, export
 │   ├── ExportModal.jsx            # Schema + format picker, split, live preview
@@ -246,6 +272,8 @@ src/
 ├── hooks/
 │   ├── useDocuments.js            # Document loading, parsing, restore
 │   ├── useGenerate.js             # Chunk orchestration, concurrency pool, retry
+│   ├── useTheme.js                # Theme state, persistence, OS sync
+│   ├── useKeyboardShortcuts.js    # Global shortcut bindings
 │   └── useExport.js               # Schema conversion + serialization
 ├── providers/
 │   ├── LLMProvider.js             # Abstract base class
@@ -338,7 +366,7 @@ It drives headless Chrome via `puppeteer-core` using the Mock provider, so no AP
 | jszip | EPUB / PPTX archive reading |
 | puppeteer-core | Screenshots and file-type tests (dev only) |
 
-HTML and XML parsing use the browser's built-in `DOMParser` — no dependency.
+HTML and XML parsing use the browser's built-in `DOMParser` — no dependency. Theming is plain CSS variables consumed through Tailwind, so there is no runtime theming library either.
 
 ---
 

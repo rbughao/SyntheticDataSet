@@ -27,15 +27,15 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
     : 'Generating…'
 
   return (
-    <div className="p-4 border-t border-gray-100 space-y-2">
+    <div className="px-5 pt-4 pb-5 space-y-2.5">
       <button
         onClick={onClick}
         disabled={isDisabled}
         title={disabled && !isLoading ? 'Upload or paste a document first' : undefined}
-        className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${
+        className={`w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-full font-semibold text-sm transition-all ${
           isDisabled
-            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white shadow-sm'
+            ? 'bg-surface-3 text-ink-3 cursor-not-allowed'
+            : 'bg-brand hover:bg-brand-hover active:scale-[0.98] text-brand-on shadow-md'
         }`}
       >
         {isLoading ? (
@@ -58,17 +58,17 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
 
       {/* Multi-file parallel info strip */}
       {isMultiFile && !isLargeOutput && (
-        <div className="flex items-center justify-between text-xs text-gray-500 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5">
+        <div className="flex items-center justify-between text-xs text-ink-3 bg-brand-soft border border-brand-soft rounded-lg px-3 py-1.5">
           <span>⚡ Parallel processing</span>
-          <span className="font-medium text-indigo-600">{progress.fileTotal} files</span>
+          <span className="font-medium text-brand-ink">{progress.fileTotal} files</span>
         </div>
       )}
 
       {/* Large output mode: buffer counter (replaces pair cards) */}
       {isLargeOutput && (
-        <div className="flex items-center justify-between text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+        <div className="flex items-center justify-between text-xs text-ink-3 bg-warn-soft border border-warn-line rounded-lg px-3 py-2">
           <span>Writing to file — no preview</span>
-          <span className="font-semibold text-indigo-600">
+          <span className="font-semibold text-brand-ink">
             {largeOutputCount.toLocaleString()} pairs
           </span>
         </div>
@@ -77,13 +77,13 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
       {/* Overall chunk progress bar (all files combined, hidden in large output mode) */}
       {hasChunkProgress && !isLargeOutput && (
         <div className="space-y-1">
-          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+          <div className="w-full bg-surface-3 rounded-full h-1.5 overflow-hidden">
             <div
-              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+              className="bg-brand h-1.5 rounded-full transition-all duration-300"
               style={{ width: `${chunkPct}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-xs text-gray-400">
+          <div className="flex items-center justify-between text-xs text-ink-3">
             <span>{progress.pairsCount} pair{progress.pairsCount !== 1 ? 's' : ''} so far</span>
             <span>{chunkPct}%</span>
           </div>
@@ -94,7 +94,7 @@ export default function GenerateButton({ isLoading, onClick, onCancel, disabled,
       {isLoading && (
         <button
           onClick={onCancel}
-          className="w-full py-1.5 text-xs font-medium text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 hover:bg-red-50 rounded-lg transition-colors"
+          className="w-full py-2 text-xs font-medium text-ink-3 hover:text-bad-ink hover:bg-bad-soft rounded-full transition-colors"
         >
           Cancel
         </button>

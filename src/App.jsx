@@ -25,9 +25,12 @@ import ExportModal from './components/ExportModal.jsx'
 import LargeOutputModal from './components/LargeOutputModal.jsx'
 import PreflightEstimate from './components/PreflightEstimate.jsx'
 import VirtualPairList, { VIRTUALIZE_THRESHOLD } from './components/VirtualPairList.jsx'
+import ThemeToggle from './components/ThemeToggle.jsx'
 
 import { useDocuments } from './hooks/useDocuments.js'
 import { useGenerate } from './hooks/useGenerate.js'
+import { useTheme } from './hooks/useTheme.js'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js'
 import { exportBufferAs } from './hooks/useExport.js'
 import { PROVIDERS } from './providers/index.js'
 import { findDuplicates } from './utils/dedup.js'
@@ -136,6 +139,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [settings, setSettings] = useState(makeDefaultSettings)
   const [showExportModal, setShowExportModal] = useState(false)
+
+  const { mode: themeMode, cycle: cycleTheme } = useTheme()
+  const searchInputRef = useRef(null)
 
   // ── Session restore ────────────────────────────────────────────────────────
   const [restorable, setRestorable] = useState(null) // { savedAt, documents, pairs }
@@ -369,10 +375,21 @@ export default function App() {
   const duplicateCount = duplicates.duplicateIds.size
   const showDedupBanner = duplicateCount > 0 && !dedupDismissed && !isLoading
 
+  useKeyboardShortcuts({
+    focusSearch: () => searchInputRef.current?.focus(),
+    generate: () => { if (!isLoading && documents.length) handleGenerate() },
+    export: () => { if (pairs.length) setShowExportModal(true) },
+    escape: () => {
+      if (showExportModal) setShowExportModal(false)
+      else if (showLargeOutputModal) setShowLargeOutputModal(false)
+      else if (searchQuery) setSearchQuery('')
+    },
+  })
+
   return (
-    <div className="flex h-screen overflow-hidden flex-col md:flex-row bg-gray-50">
+    <div className="flex h-screen overflow-hidden flex-col md:flex-row bg-canvas">
       {/* ── Left sidebar ── */}
-      <div className="w-full md:w-80 md:flex-shrink-0 flex flex-col border-r border-gray-200 bg-white overflow-y-auto md:h-screen">
+      <div className="w-full md:w-[21rem] md:flex-shrink-0 flex flex-col bg-surface-2 border-r border-line overflow-y-auto md:h-screen scrollbar-thin">
         <DocumentPanel
           documents={documents}
           activeDocumentId={activeDocumentId}
@@ -429,18 +446,20 @@ export default function App() {
           onExport={() => setShowExportModal(true)}
           isLargeOutputMode={isLargeOutputMode}
           isGenerating={isLoading}
+          searchInputRef={searchInputRef}
+          themeToggle={<ThemeToggle mode={themeMode} onCycle={cycleTheme} />}
         />
 
-        <div ref={bodyRef} className="flex-1 overflow-y-auto px-4 py-4">
+        <div ref={bodyRef} className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">
           {/* Session restore prompt */}
           {restorable && (
-            <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-start gap-3">
-              <svg className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="mb-4 bg-brand-soft border border-brand-soft rounded-xl p-4 flex items-start gap-3">
+              <svg className="w-5 h-5 text-brand-ink flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-indigo-900">Restore previous session?</p>
-                <p className="text-sm text-indigo-700 mt-0.5">
+                <p className="text-sm font-semibold text-brand-ink">Restore previous session?</p>
+                <p className="text-sm text-brand-ink mt-0.5">
                   {(restorable.pairs?.length || 0).toLocaleString()} pairs from{' '}
                   {restorable.documents?.length || 0} document
                   {restorable.documents?.length !== 1 ? 's' : ''}, saved{' '}
@@ -450,13 +469,13 @@ export default function App() {
               <div className="flex gap-2 flex-shrink-0">
                 <button
                   onClick={handleRestore}
-                  className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                  className="px-3 py-1.5 text-xs font-semibold bg-brand text-brand-on rounded-full hover:bg-brand-hover"
                 >
                   Restore
                 </button>
                 <button
                   onClick={handleDiscardRestore}
-                  className="px-3 py-1.5 text-xs text-indigo-500 hover:text-indigo-700"
+                  className="px-3 py-1.5 text-xs text-brand-ink hover:text-brand-ink"
                 >
                   Discard
                 </button>
@@ -466,23 +485,23 @@ export default function App() {
 
           {/* Failed chunks — retry without regenerating everything */}
           {failedChunks.length > 0 && !isLoading && (
-            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-              <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="mb-4 bg-warn-soft border border-warn-line rounded-xl p-4 flex items-start gap-3">
+              <svg className="w-5 h-5 text-warn flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0l-7.1 12.25A2 2 0 005 19z" />
               </svg>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-amber-900">
+                <p className="text-sm font-semibold text-warn-ink">
                   {failedChunks.length} chunk{failedChunks.length !== 1 ? 's' : ''} failed
                 </p>
-                <p className="text-sm text-amber-700 mt-0.5">
+                <p className="text-sm text-warn-ink mt-0.5">
                   Their pairs are missing from the dataset. Retrying re-runs only these
                   chunks — the rest of your results are kept.
                 </p>
                 <details className="mt-1.5">
-                  <summary className="text-xs text-amber-600 cursor-pointer">Show errors</summary>
+                  <summary className="text-xs text-warn-ink cursor-pointer">Show errors</summary>
                   <ul className="mt-1 space-y-0.5 max-h-28 overflow-y-auto">
                     {failedChunks.slice(0, 20).map(({ spec, message }, i) => (
-                      <li key={i} className="text-xs text-amber-700">
+                      <li key={i} className="text-xs text-warn-ink">
                         <span className="font-medium">{spec.docName}</span> chunk{' '}
                         {spec.chunkIndex + 1}/{spec.totalChunks} — {message}
                       </li>
@@ -493,13 +512,13 @@ export default function App() {
               <div className="flex gap-2 flex-shrink-0">
                 <button
                   onClick={handleRetryFailed}
-                  className="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700"
+                  className="px-3 py-1.5 text-xs font-semibold bg-warn text-surface rounded-full hover:bg-warn"
                 >
                   Retry {failedChunks.length}
                 </button>
                 <button
                   onClick={clearFailedChunks}
-                  className="px-3 py-1.5 text-xs text-amber-600 hover:text-amber-800"
+                  className="px-3 py-1.5 text-xs text-warn-ink hover:text-warn-ink"
                 >
                   Dismiss
                 </button>
@@ -509,16 +528,16 @@ export default function App() {
 
           {/* Duplicate detection */}
           {showDedupBanner && (
-            <div className="mb-4 bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
-              <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="mb-4 bg-warn-soft border border-warn-line rounded-xl p-4 flex items-start gap-3">
+              <svg className="w-5 h-5 text-warn flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-orange-900">
+                <p className="text-sm font-semibold text-warn-ink">
                   {duplicateCount.toLocaleString()} duplicate pair
                   {duplicateCount !== 1 ? 's' : ''} found
                 </p>
-                <p className="text-sm text-orange-700 mt-0.5">
+                <p className="text-sm text-warn-ink mt-0.5">
                   {duplicates.exactCount} exact, {duplicates.fuzzyCount} near-identical.
                   Chunks overlap by design, so repeats are expected — but duplicate
                   training examples cause overfitting.
@@ -528,13 +547,13 @@ export default function App() {
               <div className="flex gap-2 flex-shrink-0">
                 <button
                   onClick={removeAllDuplicates}
-                  className="px-3 py-1.5 text-xs font-semibold bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                  className="px-3 py-1.5 text-xs font-semibold bg-warn text-surface rounded-full hover:bg-warn"
                 >
                   Remove all
                 </button>
                 <button
                   onClick={() => { setFilterRating('duplicate'); setDedupDismissed(true) }}
-                  className="px-3 py-1.5 text-xs text-orange-600 hover:text-orange-800"
+                  className="px-3 py-1.5 text-xs text-warn-ink hover:text-warn-ink"
                 >
                   Review
                 </button>
@@ -546,66 +565,66 @@ export default function App() {
           {quality.flaggedCount > 0 && !isLoading && filterRating !== 'flagged' && (
             <button
               onClick={() => setFilterRating('flagged')}
-              className="mb-4 w-full text-left bg-white border border-gray-200 rounded-xl px-4 py-2.5 hover:border-gray-300 transition-colors flex items-center gap-2"
+              className="mb-4 w-full text-left bg-surface border border-line rounded-xl px-4 py-2.5 hover:border-line-strong transition-colors flex items-center gap-2"
             >
-              <span className="text-sm text-gray-600">
-                <span className="font-semibold text-gray-800">{quality.flaggedCount}</span> pair
+              <span className="text-sm text-ink-2">
+                <span className="font-semibold text-ink">{quality.flaggedCount}</span> pair
                 {quality.flaggedCount !== 1 ? 's' : ''} flagged by quality checks
               </span>
               {quality.errorCount > 0 && (
-                <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                <span className="text-xs bg-bad-soft text-bad-ink px-2 py-0.5 rounded-full">
                   {quality.errorCount} error{quality.errorCount !== 1 ? 's' : ''}
                 </span>
               )}
               {quality.warnCount > 0 && (
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                <span className="text-xs bg-warn-soft text-warn-ink px-2 py-0.5 rounded-full">
                   {quality.warnCount} warning{quality.warnCount !== 1 ? 's' : ''}
                 </span>
               )}
               <span className="flex-1" />
-              <span className="text-xs text-indigo-600 font-medium">Review →</span>
+              <span className="text-xs text-brand-ink font-medium">Review →</span>
             </button>
           )}
 
           {/* Generation error banner */}
           {genError && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="mb-4 bg-bad-soft border border-bad-line rounded-xl p-4">
               <div className="flex items-start gap-3">
-                <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-5 h-5 text-bad flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-red-800">
+                  <p className="text-sm font-semibold text-bad-ink">
                     {genError.type === 'parse' ? 'Failed to parse LLM response' : 'Generation failed'}
                   </p>
-                  <p className="text-sm text-red-600 mt-1">{genError.message}</p>
+                  <p className="text-sm text-bad-ink mt-1">{genError.message}</p>
                   {genError.type === 'network' && settings.providerSlug === 'anthropic' && (
-                    <p className="text-xs text-red-500 mt-1">
+                    <p className="text-xs text-bad mt-1">
                       Anthropic blocks browser CORS. Add a proxy URL in Settings, or switch to Google Gemini.
                     </p>
                   )}
                   {genError.type === 'network' && settings.providerSlug === 'ollama' && (
-                    <p className="text-xs text-red-500 mt-1">
-                      Ollama may not be running. Run <code className="bg-red-100 px-1 rounded">ollama serve</code> and set <code className="bg-red-100 px-1 rounded">OLLAMA_ORIGINS=*</code>.
+                    <p className="text-xs text-bad mt-1">
+                      Ollama may not be running. Run <code className="bg-bad-soft px-1 rounded">ollama serve</code> and set <code className="bg-bad-soft px-1 rounded">OLLAMA_ORIGINS=*</code>.
                     </p>
                   )}
                   {genError.rawText && (
                     <details className="mt-2">
-                      <summary className="text-xs text-red-500 cursor-pointer">Show raw response</summary>
-                      <pre className="mt-1 text-xs bg-red-100 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-40">{genError.rawText}</pre>
+                      <summary className="text-xs text-bad cursor-pointer">Show raw response</summary>
+                      <pre className="mt-1 text-xs bg-bad-soft rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-40">{genError.rawText}</pre>
                     </details>
                   )}
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
                   <button
                     onClick={handleGenerate}
-                    className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700"
+                    className="px-3 py-1.5 text-xs font-medium bg-bad text-surface rounded-lg hover:bg-bad"
                   >
                     Retry
                   </button>
                   <button
                     onClick={clearGenError}
-                    className="px-3 py-1.5 text-xs text-red-500 hover:text-red-700"
+                    className="px-3 py-1.5 text-xs text-bad hover:text-bad-ink"
                   >
                     Dismiss
                   </button>
@@ -617,16 +636,16 @@ export default function App() {
           {/* Large output mode — in-progress panel */}
           {isLargeOutputMode && isLoading && (
             <div className="flex flex-col items-center justify-center h-full text-center py-20 gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center">
-                <svg className="w-8 h-8 text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+              <div className="w-16 h-16 rounded-2xl bg-brand-soft flex items-center justify-center">
+                <svg className="w-8 h-8 text-brand animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               </div>
-              <p className="text-lg font-semibold text-gray-700">
+              <p className="text-lg font-semibold text-ink-2">
                 {largeOutputCount.toLocaleString()} pairs generated
               </p>
-              <p className="text-sm text-gray-400 max-w-xs">
+              <p className="text-sm text-ink-3 max-w-xs">
                 Pairs are being written to a <strong>{largeOutputFormat?.toUpperCase()}</strong> file.
                 The workspace is intentionally blank to keep the UI responsive.
               </p>
@@ -636,19 +655,19 @@ export default function App() {
           {/* Large output mode — success panel */}
           {isLargeOutputMode && largeOutputComplete && !isLoading && (
             <div className="flex flex-col items-center justify-center h-full text-center py-20 gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center">
-                <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="w-16 h-16 rounded-2xl bg-ok-soft flex items-center justify-center">
+                <svg className="w-8 h-8 text-ok" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <p className="text-lg font-semibold text-gray-700">Download complete</p>
-              <p className="text-sm text-gray-400 max-w-xs">
+              <p className="text-lg font-semibold text-ink-2">Download complete</p>
+              <p className="text-sm text-ink-3 max-w-xs">
                 {largeOutputCount.toLocaleString()} pairs saved as <strong>{largeOutputFormat?.toUpperCase()}</strong>.
                 Upload new documents or adjust settings to generate another batch.
               </p>
               <button
                 onClick={() => setLargeOutputComplete(false)}
-                className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium bg-brand hover:bg-brand-hover text-brand-on rounded-full transition-colors shadow-sm"
               >
                 Start over
               </button>
@@ -659,16 +678,16 @@ export default function App() {
           {!isLargeOutputMode && isLoading && pairs.length === 0 && (
             <div className="space-y-3 mb-4">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="bg-white border border-gray-200 rounded-xl p-4 animate-pulse">
+                <div key={i} className="bg-surface border border-line rounded-xl p-4 animate-pulse">
                   <div className="flex items-center gap-2 mb-3">
-                    <div className="h-3 w-6 bg-gray-200 rounded" />
-                    <div className="h-4 w-16 bg-gray-200 rounded-full" />
+                    <div className="h-3 w-6 bg-surface-3 rounded" />
+                    <div className="h-4 w-16 bg-surface-3 rounded-full" />
                   </div>
-                  <div className="h-3 bg-gray-200 rounded mb-1.5 w-3/4" />
-                  <div className="h-3 bg-gray-200 rounded mb-4 w-1/2" />
-                  <div className="h-3 bg-gray-200 rounded mb-1.5" />
-                  <div className="h-3 bg-gray-200 rounded mb-1.5 w-5/6" />
-                  <div className="h-3 bg-gray-200 rounded w-2/3" />
+                  <div className="h-3 bg-surface-3 rounded mb-1.5 w-3/4" />
+                  <div className="h-3 bg-surface-3 rounded mb-4 w-1/2" />
+                  <div className="h-3 bg-surface-3 rounded mb-1.5" />
+                  <div className="h-3 bg-surface-3 rounded mb-1.5 w-5/6" />
+                  <div className="h-3 bg-surface-3 rounded w-2/3" />
                 </div>
               ))}
             </div>
@@ -678,7 +697,7 @@ export default function App() {
           {!isLargeOutputMode && filteredPairs.length > 0 && (
             useVirtual ? (
               <>
-                <p className="text-xs text-gray-400 mb-2">
+                <p className="text-xs text-ink-3 mb-2">
                   Showing {filteredPairs.length.toLocaleString()} pairs in a windowed list —
                   drag-to-reorder is disabled above {VIRTUALIZE_THRESHOLD} pairs.
                 </p>
@@ -728,18 +747,18 @@ export default function App() {
             pairs.length > 0 ? (
               /* Filters matched nothing */
               <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-                  <svg className="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="w-16 h-16 rounded-2xl bg-surface-3 flex items-center justify-center mb-4">
+                  <svg className="w-8 h-8 text-ink-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                 </div>
-                <h3 className="text-base font-semibold text-gray-700 mb-1">No matching pairs</h3>
-                <p className="text-sm text-gray-400 max-w-xs mb-4">
+                <h3 className="text-base font-semibold text-ink-2 mb-1">No matching pairs</h3>
+                <p className="text-sm text-ink-3 max-w-xs mb-4">
                   {pairs.length.toLocaleString()} pairs exist, but none match the current filters.
                 </p>
                 <button
                   onClick={() => { setSearchQuery(''); setFilterRating('all'); setFilterType('all') }}
-                  className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium bg-brand hover:bg-brand-hover text-brand-on rounded-full transition-colors shadow-sm"
                 >
                   Clear filters
                 </button>
@@ -747,15 +766,15 @@ export default function App() {
             ) : !largeOutputComplete && (
               /* Nothing generated yet */
               <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                <div className="w-20 h-20 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
-                  <svg className="w-10 h-10 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div className="w-20 h-20 rounded-2xl bg-brand-soft flex items-center justify-center mb-4">
+                  <svg className="w-10 h-10 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h3 className="text-base font-semibold text-gray-700 mb-1">
+                <h3 className="text-base font-semibold text-ink-2 mb-1">
                   {activeDocument ? 'Ready to generate' : 'No document loaded'}
                 </h3>
-                <p className="text-sm text-gray-400 max-w-xs">
+                <p className="text-sm text-ink-3 max-w-xs">
                   {activeDocument
                     ? 'Configure your settings and click "Generate Dataset" to create Q&A pairs.'
                     : 'Upload a document or paste text on the left to get started.'}

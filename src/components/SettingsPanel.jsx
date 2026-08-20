@@ -226,8 +226,8 @@ export default function SettingsPanel({ settings, onChange }) {
     if (connStatus !== OK || discoveredModels.length === 0) return null
     return (
       <div className="mt-2">
-        <p className="text-xs text-gray-400 mb-1.5">Click a model to select it:</p>
-        <div className="border border-gray-200 rounded-lg overflow-hidden divide-y divide-gray-100 max-h-48 overflow-y-auto scrollbar-thin">
+        <p className="text-xs text-ink-3 mb-1.5">Click a model to select it:</p>
+        <div className="border border-line rounded-lg overflow-hidden divide-y divide-line max-h-48 overflow-y-auto scrollbar-thin">
           {discoveredModels.map((modelId) => {
             const isSelected = settings.model === modelId
             return (
@@ -236,13 +236,13 @@ export default function SettingsPanel({ settings, onChange }) {
                 onClick={() => onChange({ model: modelId })}
                 className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between gap-2 ${
                   isSelected
-                    ? 'bg-indigo-50 text-indigo-700 font-medium'
-                    : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-brand-soft text-brand-ink font-medium'
+                    : 'text-ink-2 hover:bg-surface-2'
                 }`}
               >
                 <span className="truncate font-mono">{modelId}</span>
                 {isSelected && (
-                  <svg className="w-3.5 h-3.5 flex-shrink-0 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0 text-brand-ink" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                 )}
@@ -264,10 +264,10 @@ export default function SettingsPanel({ settings, onChange }) {
         title="Fetch available models from the provider"
         className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           connStatus === OK
-            ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100'
+            ? 'border-ok-line text-ok-ink bg-ok-soft hover:bg-ok-soft'
             : connStatus === ERROR
-            ? 'border-red-300 text-red-600 bg-red-50 hover:bg-red-100'
-            : 'border-gray-200 text-gray-500 hover:border-gray-300 bg-white'
+            ? 'border-bad-line text-bad-ink bg-bad-soft hover:bg-bad-soft'
+            : 'border-line text-ink-3 hover:border-line-strong bg-surface'
         }`}
       >
         {connStatus === LOADING ? (
@@ -293,16 +293,16 @@ export default function SettingsPanel({ settings, onChange }) {
   // Render
   // ==========================================================================
   return (
-    <div className="p-4 space-y-5 border-t border-gray-100">
-      <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Settings</h2>
+    <div className="p-4 space-y-5 border-t border-line">
+      <h2 className="text-sm font-semibold text-ink-2 uppercase tracking-wide">Settings</h2>
 
       {/* Provider selector */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">LLM Provider</label>
+        <label className="block text-xs font-medium text-ink-3 mb-1">LLM Provider</label>
         <select
           value={settings.providerSlug}
           onChange={(e) => handleProviderChange(e.target.value)}
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
         >
           {Object.entries(PROVIDERS).map(([slug, meta]) => (
             <option key={slug} value={slug}>{meta.label}</option>
@@ -312,7 +312,7 @@ export default function SettingsPanel({ settings, onChange }) {
 
       {/* Mock provider info banner */}
       {isMock && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800">
+        <div className="bg-ok-soft border border-ok-line rounded-lg p-3 text-xs text-ok-ink">
           <p className="font-semibold mb-1">Simulation mode</p>
           <p>No API key or server needed. Pairs are generated locally from your document text — useful for testing the workflow and UI without any credentials.</p>
         </div>
@@ -320,42 +320,42 @@ export default function SettingsPanel({ settings, onChange }) {
 
       {/* Anthropic CORS warning */}
       {isAnthropic && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+        <div className="bg-warn-soft border border-warn-line rounded-lg p-3 text-xs text-warn-ink">
           <p className="font-semibold mb-1">⚠️ CORS restriction</p>
-          <p>Anthropic's API blocks direct browser requests. Enter a CORS proxy URL below (e.g. <code className="bg-amber-100 px-1 rounded">http://localhost:8080/https://api.anthropic.com</code>) or use Google Gemini / Ollama instead.</p>
+          <p>Anthropic's API blocks direct browser requests. Enter a CORS proxy URL below (e.g. <code className="bg-warn-soft px-1 rounded">http://localhost:8080/https://api.anthropic.com</code>) or use Google Gemini / Ollama instead.</p>
         </div>
       )}
 
       {/* Anthropic proxy URL */}
       {isAnthropic && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Proxy URL (optional)</label>
+          <label className="block text-xs font-medium text-ink-3 mb-1">Proxy URL (optional)</label>
           <input
             type="text"
             value={settings.proxyBaseUrl || ''}
             onChange={(e) => onChange({ proxyBaseUrl: e.target.value })}
             onBlur={(e) => handleProxyBaseUrlBlur(e.target.value)}
             placeholder="http://localhost:8080/https://api.anthropic.com"
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
           />
         </div>
       )}
 
       {/* Ollama setup instructions */}
       {isOllama && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 space-y-1">
+        <div className="bg-surface-2 border border-line rounded-lg p-3 text-xs text-ink-2 space-y-1">
           <p className="font-semibold">Ollama setup</p>
-          <p>1. Start Ollama: <code className="bg-gray-100 px-1 rounded">ollama serve</code></p>
-          <p>2. Set env var: <code className="bg-gray-100 px-1 rounded">OLLAMA_ORIGINS=*</code></p>
-          <p>3. Pull a model: <code className="bg-gray-100 px-1 rounded">ollama pull llama3.2</code></p>
+          <p>1. Start Ollama: <code className="bg-surface-3 px-1 rounded">ollama serve</code></p>
+          <p>2. Set env var: <code className="bg-surface-3 px-1 rounded">OLLAMA_ORIGINS=*</code></p>
+          <p>3. Pull a model: <code className="bg-surface-3 px-1 rounded">ollama pull llama3.2</code></p>
         </div>
       )}
 
       {/* Custom endpoint note */}
       {isCustom && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-600">
+        <div className="bg-surface-2 border border-line rounded-lg p-3 text-xs text-ink-2">
           <p className="font-semibold mb-1">Custom endpoint</p>
-          <p>Include <code className="bg-gray-100 px-1 rounded">/v1</code> in the URL, e.g. <code className="bg-gray-100 px-1 rounded">http://host:8000/v1</code>. In dev mode CORS is proxied automatically.</p>
+          <p>Include <code className="bg-surface-3 px-1 rounded">/v1</code> in the URL, e.g. <code className="bg-surface-3 px-1 rounded">http://host:8000/v1</code>. In dev mode CORS is proxied automatically.</p>
         </div>
       )}
 
@@ -363,11 +363,11 @@ export default function SettingsPanel({ settings, onChange }) {
       {showConnectionTest && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-gray-500">
+            <label className="text-xs font-medium text-ink-3">
               Base URL {isOllama ? '' : '(required)'}
             </label>
             {connStatus === OK && (
-              <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+              <span className="flex items-center gap-1 text-xs text-ok-ink font-medium">
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
@@ -375,7 +375,7 @@ export default function SettingsPanel({ settings, onChange }) {
               </span>
             )}
             {connStatus === ERROR && (
-              <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
+              <span className="flex items-center gap-1 text-xs text-bad font-medium">
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
@@ -391,7 +391,7 @@ export default function SettingsPanel({ settings, onChange }) {
               onChange={(e) => onChange({ baseURL: e.target.value })}
               onBlur={(e) => handleBaseURLBlur(e.target.value)}
               placeholder={isOllama ? 'http://localhost:11434/v1' : 'http://host:8000/v1'}
-              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="flex-1 text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <button
               onClick={handleFetchModels}
@@ -399,12 +399,12 @@ export default function SettingsPanel({ settings, onChange }) {
               title="Test connection and list available models"
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
                 connStatus === LOADING
-                  ? 'border-gray-200 text-gray-400 bg-gray-50 cursor-wait'
+                  ? 'border-line text-ink-3 bg-surface-2 cursor-wait'
                   : connStatus === OK
-                  ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100'
+                  ? 'border-ok-line text-ok-ink bg-ok-soft hover:bg-ok-soft'
                   : connStatus === ERROR
-                  ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
-                  : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'
+                  ? 'border-bad-line text-bad-ink bg-bad-soft hover:bg-bad-soft'
+                  : 'border-line text-ink-2 bg-surface hover:bg-surface-2'
               } disabled:opacity-40 disabled:cursor-not-allowed`}
             >
               {connStatus === LOADING ? (
@@ -422,7 +422,7 @@ export default function SettingsPanel({ settings, onChange }) {
           </div>
 
           {connStatus === ERROR && (
-            <p className="mt-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <p className="mt-1.5 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2">
               {connError || 'Could not reach the endpoint. Check the URL and that the server is running.'}
             </p>
           )}
@@ -430,7 +430,7 @@ export default function SettingsPanel({ settings, onChange }) {
           <DiscoveredModelList />
 
           {connStatus === OK && discoveredModels.length === 0 && (
-            <p className="mt-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="mt-1.5 text-xs text-warn-ink bg-warn-soft border border-warn-line rounded-lg px-3 py-2">
               Connected, but the server returned no models. Enter the model name manually below.
             </p>
           )}
@@ -440,11 +440,11 @@ export default function SettingsPanel({ settings, onChange }) {
       {/* Meta API host selector */}
       {isMeta && hasBaseURLOptions && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">API Host</label>
+          <label className="block text-xs font-medium text-ink-3 mb-1">API Host</label>
           <select
             value={settings.baseURL || providerMeta.baseURLOptions[0].value}
             onChange={(e) => onChange({ baseURL: e.target.value })}
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
           >
             {providerMeta.baseURLOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -456,17 +456,17 @@ export default function SettingsPanel({ settings, onChange }) {
       {/* Chinese sub-provider (Qwen vs DeepSeek) */}
       {isChinese && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Sub-provider</label>
+          <label className="block text-xs font-medium text-ink-3 mb-1">Sub-provider</label>
           <div className="flex gap-3">
             {Object.entries(providerMeta.subProviders || {}).map(([key, sub]) => (
-              <label key={key} className="flex items-center gap-1.5 cursor-pointer text-sm text-gray-700">
+              <label key={key} className="flex items-center gap-1.5 cursor-pointer text-sm text-ink-2">
                 <input
                   type="radio"
                   name="subProvider"
                   value={key}
                   checked={settings.subProvider === key}
                   onChange={() => handleSubProviderChange(key)}
-                  className="text-indigo-600"
+                  className="text-brand-ink"
                 />
                 {sub.label}
               </label>
@@ -478,8 +478,8 @@ export default function SettingsPanel({ settings, onChange }) {
       {/* API Key — hidden for Mock */}
       {!isMock && (providerMeta.requiresApiKey || isCustom) && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">
-            API Key {!providerMeta.requiresApiKey && <span className="text-gray-400">(optional)</span>}
+          <label className="block text-xs font-medium text-ink-3 mb-1">
+            API Key {!providerMeta.requiresApiKey && <span className="text-ink-3">(optional)</span>}
           </label>
           <div className="relative">
             <input
@@ -488,12 +488,12 @@ export default function SettingsPanel({ settings, onChange }) {
               onChange={(e) => onChange({ apiKey: e.target.value })}
               onBlur={(e) => handleApiKeyBlur(e.target.value)}
               placeholder="sk-…"
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 pr-9 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full text-sm border border-line rounded-lg px-3 py-2 pr-9 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <button
               type="button"
               onClick={() => setShowApiKey((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-2"
               tabIndex={-1}
             >
               {showApiKey ? (
@@ -515,7 +515,7 @@ export default function SettingsPanel({ settings, onChange }) {
       {!isMock && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-gray-500">Model</label>
+            <label className="text-xs font-medium text-ink-3">Model</label>
             {/* Refresh button for all providers that support model listing */}
             {canFetchModels && !showConnectionTest && (
               <RefreshButton disabled={!settings.apiKey && !isOllama} />
@@ -528,17 +528,17 @@ export default function SettingsPanel({ settings, onChange }) {
               value={settings.model || ''}
               onChange={(e) => onChange({ model: e.target.value })}
               placeholder={isOllama ? 'llama3.2' : 'model-name'}
-              className={`w-full text-sm border rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
+              className={`w-full text-sm border rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand ${
                 connStatus === OK && discoveredModels.length > 0 && !settings.model
-                  ? 'border-amber-300 bg-amber-50'
-                  : 'border-gray-200'
+                  ? 'border-warn-line bg-warn-soft'
+                  : 'border-line'
               }`}
             />
           ) : (
             <select
               value={settings.model || ''}
               onChange={(e) => onChange({ model: e.target.value })}
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
             >
               {/* Prefer discovered models; fall back to registry static list */}
               {(discoveredModels.length > 0
@@ -554,7 +554,7 @@ export default function SettingsPanel({ settings, onChange }) {
 
           {/* Error detail for non-connection-test providers */}
           {!showConnectionTest && connStatus === ERROR && (
-            <p className="mt-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <p className="mt-1.5 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2">
               {connError || 'Could not fetch models. Check your API key.'}
             </p>
           )}
@@ -564,8 +564,8 @@ export default function SettingsPanel({ settings, onChange }) {
       {/* Pair count */}
       <div>
         <div className="flex justify-between mb-1">
-          <label className="text-xs font-medium text-gray-500">Pairs to generate</label>
-          <span className="text-xs font-semibold text-indigo-600">{settings.pairCount}</span>
+          <label className="text-xs font-medium text-ink-3">Pairs to generate</label>
+          <span className="text-xs font-semibold text-brand-ink">{settings.pairCount}</span>
         </div>
         <input
           type="range"
@@ -573,14 +573,14 @@ export default function SettingsPanel({ settings, onChange }) {
           max="10000"
           value={settings.pairCount}
           onChange={(e) => onChange({ pairCount: Number(e.target.value) })}
-          className="w-full accent-indigo-600"
+          className="w-full accent-brand"
         />
-        <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+        <div className="flex justify-between text-xs text-ink-3 mt-0.5">
           <span>5</span>
           <span>10 000</span>
         </div>
         {settings.pairCount > 1000 && (
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+          <p className="text-xs text-warn-ink bg-warn-soft border border-warn-line rounded-lg px-3 py-2 mt-2">
             ⚡ Large output mode — pairs will be saved directly to a file instead of displayed on screen to prevent UI freezing.
           </p>
         )}
@@ -588,7 +588,7 @@ export default function SettingsPanel({ settings, onChange }) {
 
       {/* Style */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-2">Generation style</label>
+        <label className="block text-xs font-medium text-ink-3 mb-2">Generation style</label>
         <div className="space-y-2">
           {[
             { value: 'factual', label: 'Factual Q&A', desc: 'Who, what, when, where, why' },
@@ -609,11 +609,11 @@ export default function SettingsPanel({ settings, onChange }) {
                       onChange({ styles: [...settings.styles, value] })
                     }
                   }}
-                  className="mt-0.5 w-4 h-4 text-indigo-600 rounded border-gray-300"
+                  className="mt-0.5 w-4 h-4 text-brand-ink rounded border-line-strong"
                 />
                 <div>
-                  <div className="text-sm text-gray-700">{label}</div>
-                  <div className="text-xs text-gray-400">{desc}</div>
+                  <div className="text-sm text-ink-2">{label}</div>
+                  <div className="text-xs text-ink-3">{desc}</div>
                 </div>
               </label>
             )
@@ -623,11 +623,11 @@ export default function SettingsPanel({ settings, onChange }) {
 
       {/* Difficulty */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">Difficulty</label>
+        <label className="block text-xs font-medium text-ink-3 mb-1">Difficulty</label>
         <select
           value={settings.difficulty}
           onChange={(e) => onChange({ difficulty: e.target.value })}
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
         >
           <option value="basic">Basic</option>
           <option value="intermediate">Intermediate</option>
@@ -637,7 +637,7 @@ export default function SettingsPanel({ settings, onChange }) {
 
       {/* Temperature */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-2">Temperature</label>
+        <label className="block text-xs font-medium text-ink-3 mb-2">Temperature</label>
         <div className="flex gap-2">
           {[
             { value: 'low', label: 'Low', hint: '0.3' },
@@ -648,8 +648,8 @@ export default function SettingsPanel({ settings, onChange }) {
               key={value}
               className={`flex-1 flex flex-col items-center gap-0.5 cursor-pointer px-2 py-2 rounded-lg border text-xs transition-colors ${
                 settings.temperatureHint === value
-                  ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                  ? 'border-brand bg-brand-soft text-brand-ink'
+                  : 'border-line text-ink-3 hover:border-line-strong'
               }`}
             >
               <input
@@ -661,7 +661,7 @@ export default function SettingsPanel({ settings, onChange }) {
                 className="sr-only"
               />
               <span className="font-medium">{label}</span>
-              <span className="text-gray-400">{hint}</span>
+              <span className="text-ink-3">{hint}</span>
             </label>
           ))}
         </div>
@@ -669,28 +669,28 @@ export default function SettingsPanel({ settings, onChange }) {
 
       {/* Domain tag */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">
-          Domain tag <span className="text-gray-400 font-normal">(optional)</span>
+        <label className="block text-xs font-medium text-ink-3 mb-1">
+          Domain tag <span className="text-ink-3 font-normal">(optional)</span>
         </label>
         <input
           type="text"
           value={settings.domainTag || ''}
           onChange={(e) => onChange({ domainTag: e.target.value })}
           placeholder="e.g. medical, legal, customer support"
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
         />
       </div>
 
       {/* Parallel chunk requests */}
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">
+        <label className="block text-xs font-medium text-ink-3 mb-1">
           Parallel requests{' '}
-          <span className="text-gray-400 font-normal">(large docs)</span>
+          <span className="text-ink-3 font-normal">(large docs)</span>
         </label>
         <select
           value={settings.concurrency || 3}
           onChange={(e) => onChange({ concurrency: Number(e.target.value) })}
-          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
         >
           <option value={1}>1 — Sequential (avoid rate limits)</option>
           <option value={2}>2 — Conservative</option>
@@ -700,7 +700,7 @@ export default function SettingsPanel({ settings, onChange }) {
           <option value={8}>8 — High (local/Ollama)</option>
           <option value={10}>10 — Maximum (local only)</option>
         </select>
-        <p className="mt-1 text-xs text-gray-400">
+        <p className="mt-1 text-xs text-ink-3">
           All files process in parallel — chunks share one pool. Higher = faster, but cloud APIs may rate-limit.
         </p>
       </div>

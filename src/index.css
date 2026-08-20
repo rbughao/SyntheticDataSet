@@ -2,20 +2,184 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Thin scrollbar for document preview and workspace */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 2px;
-}
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
+/* ===========================================================================
+   Design tokens — "Editorial"
+   Warm stone neutrals, deep teal accent, separation by tone rather than
+   hard borders. Values are space-separated RGB channels so Tailwind's
+   /opacity modifier keeps working.
+   =========================================================================== */
+@layer base {
+  :root {
+    --canvas:      247 245 241;   /* warm paper */
+    --surface:     255 254 251;   /* cards, panels */
+    --surface-2:   244 241 236;   /* inset fields */
+    --surface-3:   238 234 227;   /* controls, tracks */
+
+    --line:        230 225 216;
+    --line-strong: 216 210 198;
+
+    --ink:          33  31  27;
+    --ink-2:        95  89  79;
+    --ink-3:       154 146 135;
+
+    --brand:        31 122 107;
+    --brand-hover:  24  99  86;
+    --brand-soft:  228 242 238;
+    --brand-ink:    24  99  86;
+    --brand-on:    255 255 255;   /* text on a brand-filled surface */
+
+    --warn:        176 118  26;
+    --warn-soft:   251 241 224;
+    --warn-line:   236 217 180;
+    --warn-ink:    138 100  32;
+
+    --bad:         185  58  48;
+    --bad-soft:    252 234 231;
+    --bad-line:    242 205 199;
+    --bad-ink:     158  49  40;
+
+    --ok:           42 133  92;
+    --ok-soft:     226 243 233;
+    --ok-line:     198 229 212;
+    --ok-ink:       32 108  74;
+
+    --info-soft:   232 238 245;
+    --info-line:   206 219 234;
+    --info-ink:     58  95 138;
+
+    --alt-soft:    239 233 242;
+    --alt-ink:     109  74 128;
+
+    /* Code/JSON previews stay dark in both themes — a light code block in dark
+       mode is the single most jarring thing in a themed UI. */
+    --code-bg:      38  36  32;
+    --code-fg:     232 228 220;
+
+    --shadow:       60  50  35;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --canvas:       23  22  20;
+    --surface:      32  30  27;
+    --surface-2:    26  25  23;
+    --surface-3:    41  38  35;
+
+    --line:         51  47  42;
+    --line-strong:  66  61  54;
+
+    --ink:         242 239 233;
+    --ink-2:       170 161 150;
+    --ink-3:       117 110 100;
+
+    --brand:        79 181 161;
+    --brand-hover:  99 199 179;
+    --brand-soft:   22  48  43;
+    --brand-ink:    99 199 179;
+    --brand-on:      8  38  33;
+
+    --warn:        217 166  94;
+    --warn-soft:    46  37  23;
+    --warn-line:    77  63  36;
+    --warn-ink:    217 166  94;
+
+    --bad:         232 116 105;
+    --bad-soft:     56  28  25;
+    --bad-line:     88  44  39;
+    --bad-ink:     232 130 119;
+
+    --ok:           93 190 145;
+    --ok-soft:      21  47  36;
+    --ok-line:      35  72  55;
+    --ok-ink:      109 203 158;
+
+    --info-soft:    26  36  48;
+    --info-line:    42  58  76;
+    --info-ink:    136 176 216;
+
+    --alt-soft:     38  29  43;
+    --alt-ink:     187 150 201;
+
+    --code-bg:      20  19  17;
+    --code-fg:     226 222 214;
+
+    --shadow:        0   0   0;
+
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    letter-spacing: -0.004em;
+  }
+
+  /* Editorial display face for headings and generated questions */
+  .font-display {
+    font-feature-settings: "kern" 1, "liga" 1;
+    letter-spacing: -0.012em;
+  }
+
+  /* Visible, consistent focus for keyboard users on every interactive element */
+  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid rgb(var(--brand));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--brand) / 0.22);
+  }
+
+  ::placeholder {
+    color: rgb(var(--ink-3));
+  }
 }
 
+/* ===========================================================================
+   Components
+   =========================================================================== */
+@layer components {
+  /* Field label — small caps, wide tracking */
+  .eyebrow {
+    @apply text-[10.5px] font-semibold uppercase text-ink-3;
+    letter-spacing: 0.11em;
+  }
+}
+
+/* ===========================================================================
+   Utilities
+   =========================================================================== */
+
+/* Thin scrollbars that follow the theme */
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-3)); }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+
+/* Main scroll areas pick up themed scrollbars too */
+* { scrollbar-color: rgb(var(--line-strong)) transparent; scrollbar-width: thin; }
+
 /* Auto-resize textarea baseline */
-textarea {
-  resize: none;
-  overflow: hidden;
+textarea { resize: none; overflow: hidden; }
+
+/* Native controls follow the theme instead of rendering light-on-dark */
+select option { background: rgb(var(--surface)); color: rgb(var(--ink)); }
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

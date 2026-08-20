@@ -1,14 +1,17 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useLayoutEffect } from 'react'
 
 function autoResize(el) {
   if (!el) return
-  el.style.height = 'auto'
+  // Must collapse to 0 before measuring: with height:auto a textarea falls back
+  // to its `rows` height (2 by default), so scrollHeight reports that instead
+  // of the real content height and the field never shrinks.
+  el.style.height = '0px'
   el.style.height = `${el.scrollHeight}px`
 }
 
 const TYPE_BADGE = {
-  factual: 'bg-blue-100 text-blue-700',
-  instruction: 'bg-purple-100 text-purple-700',
+  factual: 'bg-info-soft text-info-ink',
+  instruction: 'bg-alt-soft text-alt-ink',
 }
 
 export default function PairCard({
@@ -33,6 +36,14 @@ export default function PairCard({
   const instrRef = useRef(null)
   const outRef = useRef(null)
 
+  // Size both textareas to their content on mount and whenever the text
+  // changes from outside (regenerate, virtualized row reuse). Without this a
+  // textarea keeps its default two-row height and leaves dead space.
+  useLayoutEffect(() => {
+    autoResize(instrRef.current)
+    autoResize(outRef.current)
+  }, [pair.instruction, pair.output])
+
   function handleInstructionChange(e) {
     autoResize(e.target)
     onUpdate(pair.id, { instruction: e.target.value })
@@ -54,10 +65,14 @@ export default function PairCard({
 
   return (
     <div
-      className={`bg-white border rounded-xl p-4 mb-3 transition-all ${
-        isDragging ? 'opacity-50 shadow-2xl ring-2 ring-indigo-300' : 'shadow-sm hover:shadow-md'
-      } ${isSelected ? 'ring-2 ring-indigo-400' : ''} ${
-        hasError ? 'border-red-300' : hasWarn || isDuplicate ? 'border-amber-300' : 'border-gray-200'
+      className={`bg-surface rounded-2xl px-5 py-4 mb-4 transition-shadow duration-200 ${
+        isDragging ? 'opacity-50 shadow-xl ring-2 ring-brand' : 'shadow-sm hover:shadow-md'
+      } ${isSelected ? 'ring-2 ring-brand' : ''} ${
+        hasError
+          ? 'ring-1 ring-bad-line'
+          : hasWarn || isDuplicate
+          ? 'ring-1 ring-warn-line'
+          : ''
       }`}
     >
       {/* Card header */}
@@ -66,7 +81,7 @@ export default function PairCard({
         <div
           {...listeners}
           {...attributes}
-          className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 flex-shrink-0"
+          className="cursor-grab active:cursor-grabbing text-ink-3 hover:text-ink-3 flex-shrink-0"
           title="Drag to reorder"
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -75,7 +90,7 @@ export default function PairCard({
         </div>
 
         {/* Pair number */}
-        <span className="text-xs font-mono text-gray-400 flex-shrink-0">#{index + 1}</span>
+        <span className="text-xs font-mono text-ink-3 flex-shrink-0">#{index + 1}</span>
 
         {/* Type badge */}
         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TYPE_BADGE[pair.type] || TYPE_BADGE.factual}`}>
@@ -83,14 +98,14 @@ export default function PairCard({
         </span>
 
         {pair.edited && (
-          <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+          <span className="text-xs text-warn-ink bg-warn-soft px-2 py-0.5 rounded-full">
             edited
           </span>
         )}
 
         {isDuplicate && (
           <span
-            className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full"
+            className="text-xs text-warn-ink bg-warn-soft px-2 py-0.5 rounded-full"
             title="Near-identical to an earlier pair"
           >
             duplicate
@@ -98,12 +113,12 @@ export default function PairCard({
         )}
 
         {hasError && (
-          <span className="text-xs text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+          <span className="text-xs text-bad-ink bg-bad-soft px-2 py-0.5 rounded-full">
             ⚠ issue
           </span>
         )}
         {hasWarn && (
-          <span className="text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+          <span className="text-xs text-warn-ink bg-warn-soft px-2 py-0.5 rounded-full">
             ⚠ check
           </span>
         )}
@@ -116,7 +131,7 @@ export default function PairCard({
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(pair.id)}
-          className="w-4 h-4 text-indigo-600 rounded border-gray-300 cursor-pointer"
+          className="w-4 h-4 text-brand-ink rounded border-line-strong cursor-pointer"
         />
       </div>
 
@@ -125,8 +140,8 @@ export default function PairCard({
         <ul
           className={`mb-3 rounded-lg px-3 py-2 space-y-0.5 text-xs ${
             hasError
-              ? 'bg-red-50 border border-red-200 text-red-700'
-              : 'bg-amber-50 border border-amber-200 text-amber-800'
+              ? 'bg-bad-soft border border-bad-line text-bad-ink'
+              : 'bg-warn-soft border border-warn-line text-warn-ink'
           }`}
         >
           {issues.map((issue) => (
@@ -135,33 +150,32 @@ export default function PairCard({
         </ul>
       )}
 
-      {/* Instruction */}
+      {/* Instruction — set in the display face; this is the question the
+          reader scans first, so it carries the most typographic weight. */}
       <div className="mb-3">
-        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">
-          Instruction
-        </label>
+        <label className="eyebrow mb-1.5 block">Instruction</label>
         <textarea
           ref={instrRef}
           value={pair.instruction}
           onChange={handleInstructionChange}
           onInput={(e) => autoResize(e.target)}
-          className="w-full text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent leading-relaxed"
-          style={{ minHeight: '60px' }}
+          className="w-full font-display text-[16px] font-semibold text-ink bg-transparent rounded-lg px-2 -mx-2 py-1 leading-snug transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-brand"
+          rows={1}
+          style={{ minHeight: "28px" }}
         />
       </div>
 
       {/* Output */}
-      <div className="mb-3">
-        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">
-          Output
-        </label>
+      <div className="mb-2">
+        <label className="eyebrow mb-1.5 block">Output</label>
         <textarea
           ref={outRef}
           value={pair.output}
           onChange={handleOutputChange}
           onInput={(e) => autoResize(e.target)}
-          className="w-full text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent leading-relaxed"
-          style={{ minHeight: '80px' }}
+          className="w-full text-[14.5px] text-ink-2 bg-transparent rounded-lg px-2 -mx-2 py-1 leading-[1.65] transition-colors hover:bg-surface-2 focus:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-brand"
+          rows={1}
+          style={{ minHeight: "28px" }}
         />
       </div>
 
@@ -172,8 +186,8 @@ export default function PairCard({
           onClick={() => onUpdate(pair.id, { rating: pair.rating === 'up' ? null : 'up' })}
           className={`p-1.5 rounded-lg transition-colors ${
             pair.rating === 'up'
-              ? 'bg-green-100 text-green-600'
-              : 'text-gray-400 hover:text-green-500 hover:bg-green-50'
+              ? 'bg-ok-soft text-ok-ink'
+              : 'text-ink-3 hover:text-ok hover:bg-ok-soft'
           }`}
           title="Thumbs up"
         >
@@ -185,8 +199,8 @@ export default function PairCard({
           onClick={() => onUpdate(pair.id, { rating: pair.rating === 'down' ? null : 'down' })}
           className={`p-1.5 rounded-lg transition-colors ${
             pair.rating === 'down'
-              ? 'bg-red-100 text-red-600'
-              : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+              ? 'bg-bad-soft text-bad-ink'
+              : 'text-ink-3 hover:text-bad hover:bg-bad-soft'
           }`}
           title="Thumbs down"
         >
@@ -201,7 +215,7 @@ export default function PairCard({
         <button
           onClick={handleRegenerate}
           disabled={isRegenerating}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-ink-3 hover:text-brand-ink hover:bg-brand-soft rounded-lg transition-colors disabled:opacity-50"
         >
           {isRegenerating ? (
             <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -221,13 +235,13 @@ export default function PairCard({
           <div className="flex items-center gap-1">
             <button
               onClick={() => onDelete(pair.id)}
-              className="px-2.5 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              className="px-2.5 py-1.5 text-xs bg-bad text-surface rounded-lg hover:bg-bad transition-colors"
             >
               Confirm
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="px-2.5 py-1.5 text-xs text-gray-500 hover:text-gray-700 rounded-lg transition-colors"
+              className="px-2.5 py-1.5 text-xs text-ink-3 hover:text-ink-2 rounded-lg transition-colors"
             >
               Cancel
             </button>
@@ -235,7 +249,7 @@ export default function PairCard({
         ) : (
           <button
             onClick={() => setConfirmDelete(true)}
-            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            className="p-1.5 text-ink-3 hover:text-bad hover:bg-bad-soft rounded-lg transition-colors"
             title="Delete pair"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

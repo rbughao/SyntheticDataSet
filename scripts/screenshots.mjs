@@ -149,6 +149,13 @@ async function main() {
   // 03 — populated review workspace
   await shot(page, '03-review-workspace.png')
 
+  // 03b — the same screen in dark mode
+  await page.evaluate(() => document.documentElement.classList.add('dark'))
+  await sleep(500)
+  await shot(page, '03b-review-workspace-dark.png')
+  await page.evaluate(() => document.documentElement.classList.remove('dark'))
+  await sleep(400)
+
   // 04 — export modal with the ChatML schema and a 90/10 split selected
   await clickByText(page, '^Export$')
   await sleep(400)
@@ -186,18 +193,7 @@ async function main() {
   // 07 — quality validation. Swap in a document whose sentences reference the
   // source, which the Mock provider echoes verbatim into outputs and the
   // validator then flags as a source leak.
-  await page.evaluate(() => {
-    const x = [...document.querySelectorAll('button')].find(
-      (b) => b.getAttribute('title') === 'Remove' || b.textContent.trim() === '×'
-    )
-    if (x) x.click()
-  })
-  await page.evaluate(() => {
-    // Fall back to the last small button in the document row
-    const row = document.querySelector('[class*="DOCUMENTS"]')
-    void row
-  })
-  await sleep(400)
+  await sleep(200)
 
   const MESSY = [
     'According to the document, retrieval augmented generation combines a search index with a generative model.',
@@ -206,17 +202,12 @@ async function main() {
     'Reranking models score candidate passages a second time to improve the precision of the final context window.',
   ].join(' ')
 
-  const stillHasDoc = await page.evaluate(() => /chars/.test(document.body.innerText))
-  if (stillHasDoc) {
-    // Remove whatever document is loaded so only the messy one remains
-    await page.evaluate(() => {
-      document.querySelectorAll('svg').forEach((s) => {
-        const btn = s.closest('button')
-        if (btn && btn.className.includes('hover:text-red')) btn.click()
-      })
-    })
-    await sleep(400)
-  }
+  // Clear every loaded document so only the messy one remains. The remove
+  // buttons carry an aria-label, which is stable across restyling.
+  await page.evaluate(() => {
+    document.querySelectorAll('button[aria-label^="Remove "]').forEach((b) => b.click())
+  })
+  await sleep(500)
 
   await setReactValue(page, 'textarea[placeholder*="Paste your document"]', MESSY)
   await clickByText(page, 'Add Document')

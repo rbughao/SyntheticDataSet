@@ -21,7 +21,7 @@ export const PROVIDERS = {
     freeTextModel: false,
     // Flag consumed by SettingsPanel to show an info banner and hide irrelevant fields
     mockWarning: true,
-    badgeColor: 'bg-emerald-100 text-emerald-700',
+    badgeColor: 'bg-ok-soft text-ok-ink',
   },
   anthropic: {
     label: 'Anthropic',
@@ -31,7 +31,7 @@ export const PROVIDERS = {
     requiresApiKey: true,
     // Anthropic blocks browser CORS — show amber warning in SettingsPanel
     corsWarning: true,
-    badgeColor: 'bg-orange-100 text-orange-700',
+    badgeColor: 'bg-warn-soft text-warn-ink',
   },
   openai: {
     label: 'OpenAI',
@@ -39,7 +39,7 @@ export const PROVIDERS = {
     models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
     defaultModel: 'gpt-4o',
     requiresApiKey: true,
-    badgeColor: 'bg-green-100 text-green-700',
+    badgeColor: 'bg-ok-soft text-ok-ink',
   },
   google: {
     label: 'Google Gemini',
@@ -47,7 +47,7 @@ export const PROVIDERS = {
     models: ['gemini-2.5-pro', 'gemini-2.0-flash'],
     defaultModel: 'gemini-2.5-pro',
     requiresApiKey: true,
-    badgeColor: 'bg-blue-100 text-blue-700',
+    badgeColor: 'bg-info-soft text-info-ink',
   },
   meta: {
     label: 'Meta (Llama)',
@@ -61,7 +61,7 @@ export const PROVIDERS = {
       { label: 'Fireworks AI', value: 'https://api.fireworks.ai/inference/v1' },
       { label: 'Groq', value: 'https://api.groq.com/openai/v1' },
     ],
-    badgeColor: 'bg-indigo-100 text-indigo-700',
+    badgeColor: 'bg-brand-soft text-brand-ink',
   },
   chinese: {
     label: 'Chinese Open Weights',
@@ -83,7 +83,7 @@ export const PROVIDERS = {
       },
     },
     defaultSubProvider: 'qwen',
-    badgeColor: 'bg-red-100 text-red-700',
+    badgeColor: 'bg-bad-soft text-bad-ink',
   },
   ollama: {
     label: 'Ollama (Local)',
@@ -94,7 +94,7 @@ export const PROVIDERS = {
     freeTextModel: true,
     // Show OLLAMA_ORIGINS setup instructions in SettingsPanel
     ollamaWarning: true,
-    badgeColor: 'bg-gray-100 text-gray-700',
+    badgeColor: 'bg-surface-3 text-ink-2',
   },
   custom: {
     label: 'Custom (OpenAI-compatible)',
@@ -104,7 +104,7 @@ export const PROVIDERS = {
     requiresApiKey: false,
     freeTextModel: true,
     requiresBaseURL: true,
-    badgeColor: 'bg-purple-100 text-purple-700',
+    badgeColor: 'bg-alt-soft text-alt-ink',
   },
 }
 
