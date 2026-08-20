@@ -21,6 +21,14 @@ function docsReducer(state, action) {
     }
     case 'SET_ACTIVE':
       return { ...state, activeDocumentId: action.id }
+    case 'RESTORE':
+      return {
+        ...state,
+        documents: action.documents,
+        activeDocumentId: action.documents[0]?.id ?? null,
+      }
+    case 'CLEAR_ALL':
+      return { ...state, documents: [], activeDocumentId: null }
     case 'SET_ERROR':
       return { ...state, error: action.message }
     case 'CLEAR_ERROR':
@@ -81,6 +89,15 @@ export function useDocuments() {
     dispatch({ type: 'CLEAR_ERROR' })
   }, [])
 
+  /** Rehydrate documents from a persisted session snapshot. */
+  const restoreDocuments = useCallback((documents) => {
+    if (documents?.length) dispatch({ type: 'RESTORE', documents })
+  }, [])
+
+  const clearAllDocuments = useCallback(() => {
+    dispatch({ type: 'CLEAR_ALL' })
+  }, [])
+
   const activeDocument = state.documents.find((d) => d.id === state.activeDocumentId) ?? null
 
   return {
@@ -93,6 +110,8 @@ export function useDocuments() {
     addPaste,
     removeDocument,
     setActiveDocument,
+    restoreDocuments,
+    clearAllDocuments,
     clearError,
     CHAR_LIMIT,
   }

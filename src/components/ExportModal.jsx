@@ -1,24 +1,63 @@
-import { useExport } from '../hooks/useExport.js'
+import { useState } from 'react'
+import { SCHEMAS, FORMATS, exportPairs, splitTrainVal, toSchema } from '../hooks/useExport.js'
 
-export default function ExportModal({ pairs, onClose }) {
-  const { exportJSONL, exportJSON, exportCSV, estimateTokens } = useExport()
+const SPLIT_OPTIONS = [
+  { id: 0, label: 'No split', hint: 'Single file' },
+  { id: 0.1, label: '90 / 10', hint: 'train + val' },
+  { id: 0.2, label: '80 / 20', hint: 'train + val' },
+]
 
-  const factualCount = pairs.filter((p) => p.type === 'factual').length
-  const instructionCount = pairs.filter((p) => p.type === 'instruction').length
-  const tokenEstimate = estimateTokens(pairs)
+export default function ExportModal({ pairs, selectedIds, onClose }) {
+  const [schema, setSchema] = useState('instruction')
+  const [format, setFormat] = useState('jsonl')
+  const [validationRatio, setValidationRatio] = useState(0)
+  const [selectedOnly, setSelectedOnly] = useState(false)
+
+  const hasSelection = selectedIds && selectedIds.size > 0
+  const exportSet = selectedOnly && hasSelection
+    ? pairs.filter((p) => selectedIds.has(p.id))
+    : pairs
+
+  const factualCount = exportSet.filter((p) => p.type === 'factual').length
+  const instructionCount = exportSet.filter((p) => p.type === 'instruction').length
+  const tokenEstimate = Math.round(
+    exportSet.reduce(
+      (sum, p) => sum + (p.instruction?.length ?? 0) + (p.output?.length ?? 0),
+      0
+    ) / 4
+  )
+
+  const { train, val } = splitTrainVal(exportSet, validationRatio)
+
+  // CSV flattens to instruction/output/type columns — nested schemas don't apply
+  const schemaDisabled = format === 'csv'
+
+  // Live preview of the first pair in the chosen schema
+  const previewObj = exportSet.length
+    ? toSchema(exportSet[0], schemaDisabled ? 'instruction' : schema)
+    : null
 
   function handleBackdropClick(e) {
     if (e.target === e.currentTarget) onClose()
   }
 
+  function handleExport() {
+    exportPairs(exportSet, {
+      format,
+      schema: schemaDisabled ? 'instruction' : schema,
+      validationRatio,
+    })
+    onClose()
+  }
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto"
       onClick={handleBackdropClick}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <h2 className="text-lg font-semibold text-gray-900">Export Dataset</h2>
           <button
             onClick={onClose}
@@ -30,57 +69,153 @@ export default function ExportModal({ pairs, onClose }) {
           </button>
         </div>
 
-        {/* Summary */}
-        <div className="bg-gray-50 rounded-lg p-4 mb-5 space-y-2">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Summary</h3>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Total pairs</span>
-            <span className="font-medium text-gray-900">{pairs.length}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Factual pairs</span>
-            <span className="font-medium">
-              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">
-                {factualCount}
+        <div className="px-6 pb-6 space-y-5">
+          {/* Selected-only toggle */}
+          {hasSelection && (
+            <label className="flex items-center gap-2.5 text-sm bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedOnly}
+                onChange={(e) => setSelectedOnly(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 rounded border-gray-300"
+              />
+              <span className="text-gray-700">
+                Export selected only
+                <span className="text-gray-400"> ({selectedIds.size} of {pairs.length})</span>
               </span>
-            </span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Instruction pairs</span>
-            <span className="font-medium">
-              <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-xs">
-                {instructionCount}
-              </span>
-            </span>
-          </div>
-          <div className="flex justify-between text-sm border-t border-gray-200 pt-2 mt-2">
-            <span className="text-gray-500">Est. tokens</span>
-            <span className="font-medium text-gray-900">{tokenEstimate.toLocaleString()}</span>
-          </div>
-        </div>
+            </label>
+          )}
 
-        {/* Export buttons */}
-        <div className="space-y-2">
+          {/* Summary */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Total pairs</span>
+              <span className="font-semibold text-gray-900">{exportSet.length.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Factual / Instruction</span>
+              <span className="font-medium text-gray-700">
+                <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{factualCount}</span>
+                <span className="mx-1 text-gray-300">/</span>
+                <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-xs">{instructionCount}</span>
+              </span>
+            </div>
+            <div className="flex justify-between text-sm border-t border-gray-200 pt-2">
+              <span className="text-gray-500">Est. tokens</span>
+              <span className="font-medium text-gray-900">{tokenEstimate.toLocaleString()}</span>
+            </div>
+            {validationRatio > 0 && (
+              <div className="flex justify-between text-sm border-t border-gray-200 pt-2">
+                <span className="text-gray-500">Split</span>
+                <span className="font-medium text-gray-700">
+                  {train.length.toLocaleString()} train · {val.length.toLocaleString()} val
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Schema picker */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Schema
+              {schemaDisabled && (
+                <span className="ml-2 normal-case font-normal text-gray-400">
+                  — CSV always uses flat columns
+                </span>
+              )}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {SCHEMAS.map((s) => {
+                const isSelected = !schemaDisabled && schema === s.id
+                return (
+                  <button
+                    key={s.id}
+                    disabled={schemaDisabled}
+                    onClick={() => setSchema(s.id)}
+                    className={`text-left p-2.5 rounded-xl border-2 transition-colors ${
+                      schemaDisabled
+                        ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                        : isSelected
+                        ? 'border-indigo-400 bg-indigo-50'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <span className={`block text-sm font-semibold ${isSelected ? 'text-indigo-700' : 'text-gray-700'}`}>
+                      {s.label}
+                    </span>
+                    <span className="block text-xs text-gray-400 mt-0.5 truncate" title={s.note}>
+                      {s.note}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Format + split */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Format</p>
+              <div className="flex gap-1.5">
+                {FORMATS.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFormat(f.id)}
+                    className={`flex-1 px-2 py-2 text-xs font-semibold rounded-lg border-2 transition-colors ${
+                      format === f.id
+                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Train / val split</p>
+              <div className="flex gap-1.5">
+                {SPLIT_OPTIONS.map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => setValidationRatio(o.id)}
+                    className={`flex-1 px-2 py-2 text-xs font-semibold rounded-lg border-2 transition-colors ${
+                      validationRatio === o.id
+                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Live preview */}
+          {previewObj && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Preview — first record</p>
+              <pre className="text-xs bg-gray-900 text-gray-100 rounded-xl p-3 overflow-x-auto max-h-40 leading-relaxed">
+{format === 'csv'
+  ? 'instruction,output,type\n"…","…",factual'
+  : JSON.stringify(previewObj, null, format === 'json' ? 2 : 0)}
+              </pre>
+            </div>
+          )}
+
+          {/* Export button */}
           <button
-            onClick={() => { exportJSONL(pairs); onClose() }}
-            className="w-full flex items-center justify-between px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+            onClick={handleExport}
+            disabled={exportSet.length === 0}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold rounded-xl transition-colors"
           >
-            <span className="font-medium">Export as JSONL</span>
-            <span className="text-indigo-200 text-sm">Fine-tuning standard</span>
-          </button>
-          <button
-            onClick={() => { exportJSON(pairs); onClose() }}
-            className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg transition-colors"
-          >
-            <span className="font-medium">Export as JSON</span>
-            <span className="text-gray-400 text-sm">Full array</span>
-          </button>
-          <button
-            onClick={() => { exportCSV(pairs); onClose() }}
-            className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg transition-colors"
-          >
-            <span className="font-medium">Export as CSV</span>
-            <span className="text-gray-400 text-sm">Spreadsheet-friendly</span>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            {validationRatio > 0
+              ? `Download 2 files (${exportSet.length.toLocaleString()} pairs)`
+              : `Download ${exportSet.length.toLocaleString()} pairs`}
           </button>
         </div>
       </div>

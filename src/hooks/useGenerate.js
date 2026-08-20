@@ -102,43 +102,53 @@ function toPairs(parsed) {
 }
 
 // ---------------------------------------------------------------------------
-// processOneDocument — pure async helper (no React state)
+// Chunk specs — the unit of work shared by generateAll() and retryFailedChunks()
 // ---------------------------------------------------------------------------
+const MAX_CONTEXT_RETRIES = 3
+
 /**
- * Runs the full chunked pipeline for a single document.
- * Does NOT touch React state — callers own all state transitions.
+ * Expand documents into a flat list of chunk specs.
+ * A spec fully describes one API call, so a failed one can be re-run verbatim.
  *
- * @param {object} doc          Document object { id, name, text, … }
- * @param {object} settings     Generation settings
- * @param {object} provider     Already-created LLMProvider instance
- * @param {Function} onChunkPairs  (pairs[]) — called as each chunk succeeds
- * @param {Function} onProgress    ({ completed, total }) — called after each chunk settles
- * @param {{ current: boolean }} cancelRef
- * @returns {Promise<Array>}    Ordered pairs array (document order, not completion order)
+ * @returns {Array<{ docId, docName, chunk, chunkIndex, totalChunks, pairsToRequest }>}
  */
-async function processOneDocument({ doc, settings, provider, onChunkPairs, onProgress, cancelRef }) {
-  const fullText = doc.text
-  const rawChunks = chunkDocument(fullText, CHUNK_SIZE, CHUNK_OVERLAP)
-  const totalPairs = settings.pairCount
-  const concurrency = Math.max(1, settings.concurrency || 3)
+function buildChunkSpecs(documents, settings) {
+  const specs = []
+  for (const doc of documents) {
+    const rawChunks = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP)
+    const totalPairs = settings.pairCount
+    // Never request more chunks than pairs — each chunk yields at least one pair
+    const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
+    const n = chunks.length
+    const basePairs = Math.floor(totalPairs / n)
+    const extraPairs = totalPairs % n
 
-  const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
-  const n = chunks.length
-  const basePairs = Math.floor(totalPairs / n)
-  const extraPairs = totalPairs % n
+    chunks.forEach((chunk, i) => {
+      specs.push({
+        docId: doc.id,
+        docName: doc.name,
+        chunk,
+        chunkIndex: i,
+        totalChunks: n,
+        pairsToRequest: basePairs + (i < extraPairs ? 1 : 0),
+      })
+    })
+  }
+  return specs
+}
 
-  const chunkResults = new Array(n).fill(null)
-  let completedCount = 0
-  let failedCount = 0
-  let lastFailError = null
-
-  // Each task has an adaptive retry loop: context-size errors trigger halving
-  // of chunk text and pair count (up to 3 halvings: 4000→2000→1000→500 chars).
-  const MAX_CONTEXT_RETRIES = 3
-  const taskFns = chunks.map((chunk, i) => async () => {
-    const pairsForThisChunk = basePairs + (i < extraPairs ? 1 : 0)
+/**
+ * Turn one spec into an async task.
+ *
+ * Includes the adaptive context-overflow retry: on a context-size error the
+ * chunk text and requested pair count are halved and the call retried, up to
+ * MAX_CONTEXT_RETRIES times (4000→2000→1000→500 chars).
+ */
+function makeChunkTask(spec, provider, settings) {
+  return async () => {
+    const { chunk, chunkIndex: i, totalChunks: n, docName } = spec
     let chunkText = chunk.text
-    let pairsToRequest = pairsForThisChunk
+    let pairsToRequest = spec.pairsToRequest
 
     for (let attempt = 0; attempt <= MAX_CONTEXT_RETRIES; attempt++) {
       try {
@@ -155,50 +165,30 @@ async function processOneDocument({ doc, settings, provider, onChunkPairs, onPro
       } catch (err) {
         const hitContextLimit = isContextError(err)
         const canShrink = chunkText.length > 500 && attempt < MAX_CONTEXT_RETRIES
-
         if (hitContextLimit && canShrink) {
           chunkText = chunkText.slice(0, Math.ceil(chunkText.length / 2))
           pairsToRequest = Math.max(1, Math.ceil(pairsToRequest / 2))
           console.warn(
-            `[chunk ${i + 1}/${n}] Context limit hit — retrying with ` +
-            `${chunkText.length} chars, ${pairsToRequest} pair(s) ` +
-            `(attempt ${attempt + 2}/${MAX_CONTEXT_RETRIES + 1})`
+            `[${docName} chunk ${i + 1}/${n}] Context limit — retrying with ` +
+            `${chunkText.length} chars (attempt ${attempt + 2}/${MAX_CONTEXT_RETRIES + 1})`
           )
           continue
         }
         throw err
       }
     }
-  })
-
-  await runConcurrent(
-    taskFns,
-    concurrency,
-    (index, pairs, err) => {
-      completedCount++
-      if (pairs && pairs.length > 0) {
-        chunkResults[index] = pairs
-        onChunkPairs?.(pairs)
-      } else {
-        chunkResults[index] = []
-        if (err) { failedCount++; lastFailError = err }
-        console.warn(`Chunk ${index + 1}/${n} failed:`, err?.message)
-      }
-      onProgress?.({ completed: completedCount, total: n })
-    },
-    cancelRef
-  )
-
-  if (cancelRef?.current) return []
-
-  if (failedCount > 0 && failedCount === n) {
-    throw new Error(
-      `All ${n} chunk${n !== 1 ? 's' : ''} failed. ` +
-      `Last error: ${lastFailError?.message || 'unknown error'}`
-    )
   }
+}
 
-  return chunkResults.flatMap((r) => r || [])
+/** Build a provider instance from settings. */
+function providerFrom(settings) {
+  return createProvider(settings.providerSlug, {
+    apiKey: settings.apiKey,
+    baseURL: settings.baseURL,
+    model: settings.model,
+    proxyBaseUrl: settings.proxyBaseUrl,
+    subProvider: settings.subProvider,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -214,11 +204,18 @@ export function useGenerate() {
   const [fileProgress, setFileProgress] = useState({})
   const [error, setError] = useState(null)
 
+  // Chunk specs that errored in the last run, kept so they can be re-run
+  // without regenerating the whole dataset.
+  const [failedChunks, setFailedChunks] = useState([])
+
   const cancelRef = useRef(false)
   const generationIdRef = useRef(0)
+  // Settings captured from the last run, reused by retryFailedChunks()
+  const lastSettingsRef = useRef(null)
 
   const clearError = useCallback(() => setError(null), [])
   const cancelGeneration = useCallback(() => { cancelRef.current = true }, [])
+  const clearFailedChunks = useCallback(() => setFailedChunks([]), [])
 
   // ---------------------------------------------------------------------------
   // generateAll() — parallel multi-document orchestrator
@@ -246,133 +243,72 @@ export function useGenerate() {
     setIsLoading(true)
     setProgress(null)
     setError(null)
+    setFailedChunks([])
+    lastSettingsRef.current = settings
 
-    // Initialise all documents as 'pending' in the sidebar
-    setFileProgress(
-      Object.fromEntries(documents.map((d) => [d.id, { status: 'pending', pairCount: 0 }]))
-    )
-
-    const provider = createProvider(settings.providerSlug, {
-      apiKey: settings.apiKey,
-      baseURL: settings.baseURL,
-      model: settings.model,
-      proxyBaseUrl: settings.proxyBaseUrl,
-      subProvider: settings.subProvider,
-    })
+    const provider = providerFrom(settings)
+    const specs = buildChunkSpecs(documents, settings)
 
     // ── Per-doc tracking ────────────────────────────────────────────────────
     const totalChunksPerDoc = {}  // { [docId]: number }
-    const completedPerDoc = {}    // { [docId]: number } — success + failure count
+    const completedPerDoc = {}    // { [docId]: number } — success + failure
     const failedPerDoc = {}       // { [docId]: number }
     const lastErrPerDoc = {}      // { [docId]: Error }
     const pairsByChunk = {}       // { [docId]: { [chunkIdx]: pair[] } }
     const docById = {}            // { [docId]: doc }
 
-    // Parallel index maps so onItemDone can look up which doc/chunk a result belongs to
-    const taskDocIds = []   // taskDocIds[taskIndex] = docId
-    const taskChunkIs = []  // taskChunkIs[taskIndex] = chunkIndex within that doc
-
-    let globalTotal = 0
-    let globalCompleted = 0
-    let globalPairs = 0
-    let firstError = null
-
-    const MAX_CONTEXT_RETRIES = 3
-
-    // ── Flatten all chunks from all documents into one task array ───────────
-    const allTaskFns = documents.flatMap((doc) => {
-      const rawChunks = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP)
-      const totalPairs = settings.pairCount
-      const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
-      const n = chunks.length
-      const basePairs = Math.floor(totalPairs / n)
-      const extraPairs = totalPairs % n
-
+    for (const doc of documents) {
       docById[doc.id] = doc
-      totalChunksPerDoc[doc.id] = n
+      totalChunksPerDoc[doc.id] = 0
       completedPerDoc[doc.id] = 0
       failedPerDoc[doc.id] = 0
       lastErrPerDoc[doc.id] = null
       pairsByChunk[doc.id] = {}
-      globalTotal += n
+    }
+    for (const s of specs) totalChunksPerDoc[s.docId] = s.totalChunks
 
-      return chunks.map((chunk, i) => {
-        taskDocIds.push(doc.id)
-        taskChunkIs.push(i)
-        const pairsForThisChunk = basePairs + (i < extraPairs ? 1 : 0)
+    const globalTotal = specs.length
+    let globalCompleted = 0
+    let globalPairs = 0
+    let firstError = null
+    const failures = []
 
-        return async () => {
-          let chunkText = chunk.text
-          let pairsToRequest = pairsForThisChunk
-
-          for (let attempt = 0; attempt <= MAX_CONTEXT_RETRIES; attempt++) {
-            try {
-              const chunkForPrompt = { ...chunk, text: chunkText }
-              const { messages, temperature } = buildChunkMessages(
-                chunkForPrompt, i, n, pairsToRequest, settings
-              )
-              const responseText = await provider.complete(messages, {
-                model: settings.model,
-                temperature,
-                maxTokens: calcMaxTokens(pairsToRequest),
-              })
-              return toPairs(parseResponse(responseText))
-            } catch (err) {
-              const hitContextLimit = isContextError(err)
-              const canShrink = chunkText.length > 500 && attempt < MAX_CONTEXT_RETRIES
-              if (hitContextLimit && canShrink) {
-                chunkText = chunkText.slice(0, Math.ceil(chunkText.length / 2))
-                pairsToRequest = Math.max(1, Math.ceil(pairsToRequest / 2))
-                console.warn(
-                  `[${doc.name} chunk ${i + 1}/${n}] Context limit — retrying with ` +
-                  `${chunkText.length} chars (attempt ${attempt + 2}/${MAX_CONTEXT_RETRIES + 1})`
-                )
-                continue
-              }
-              throw err
-            }
-          }
-        }
-      })
-    })
-
-    // ── Mark all docs as 'processing' — they all start concurrently ─────────
+    // All docs start concurrently — mark them all 'processing'
     setFileProgress(
       Object.fromEntries(documents.map((d) => [d.id, { status: 'processing', pairCount: 0 }]))
     )
 
-    // ── Run all chunks through one shared pool ──────────────────────────────
+    // ── Run every chunk from every file through one shared pool ─────────────
     try {
       await runConcurrent(
-        allTaskFns,
+        specs.map((spec) => makeChunkTask(spec, provider, settings)),
         Math.max(1, settings.concurrency || 3),
         (taskIndex, pairs, err) => {
           if (generationIdRef.current !== myId) return
 
-          const docId = taskDocIds[taskIndex]
-          const chunkIdx = taskChunkIs[taskIndex]
-          const doc = docById[docId]
-          const n = totalChunksPerDoc[docId]
+          const spec = specs[taskIndex]
+          const { docId, chunkIndex, totalChunks: n, docName } = spec
 
           globalCompleted++
 
           if (pairs && pairs.length > 0) {
-            pairsByChunk[docId][chunkIdx] = pairs
+            pairsByChunk[docId][chunkIndex] = pairs
             const tagged = pairs.map((p) => ({ ...p, sourceDocId: docId }))
             globalPairs += tagged.length
             onChunkPairs?.(tagged, docId)
           } else {
-            pairsByChunk[docId][chunkIdx] = []
+            pairsByChunk[docId][chunkIndex] = []
             if (err) {
               failedPerDoc[docId]++
               lastErrPerDoc[docId] = err
-              console.warn(`[${doc.name} chunk ${chunkIdx + 1}/${n}] failed:`, err.message)
+              // Keep the spec so the user can retry just this chunk
+              failures.push({ spec, message: err.message })
+              console.warn(`[${docName} chunk ${chunkIndex + 1}/${n}] failed:`, err.message)
             }
           }
 
           completedPerDoc[docId]++
 
-          // Update global progress bar
           setProgress({
             fileTotal: documents.length,
             completed: globalCompleted,
@@ -380,10 +316,9 @@ export function useGenerate() {
             pairsCount: globalPairs,
           })
 
-          // When every chunk for this doc has settled → finalise it
+          // Every chunk for this doc has settled → finalise it
           if (completedPerDoc[docId] === n) {
-            const allFailed = failedPerDoc[docId] === n
-            if (allFailed) {
+            if (failedPerDoc[docId] === n) {
               setFileProgress((prev) => ({
                 ...prev,
                 [docId]: { status: 'error', pairCount: 0 },
@@ -392,22 +327,17 @@ export function useGenerate() {
                 `All ${n} chunk${n !== 1 ? 's' : ''} failed. ` +
                 `Last error: ${lastErrPerDoc[docId]?.message || 'unknown error'}`
               )
-              if (documents.length === 1) {
-                firstError = classifyError(docErr)
-              } else {
-                console.error(`File "${doc.name}" failed:`, docErr.message)
-              }
+              if (documents.length === 1) firstError = classifyError(docErr)
+              else console.error(`File "${docName}" failed:`, docErr.message)
             } else {
-              // Reconstruct pairs in document-text order (not completion order)
-              const orderedPairs = Array.from({ length: n }, (_, i) =>
-                pairsByChunk[docId][i] || []
-              ).flat()
-              const taggedOrdered = orderedPairs.map((p) => ({ ...p, sourceDocId: docId }))
+              // Reconstruct in document-text order, not completion order
+              const ordered = Array.from({ length: n }, (_, i) => pairsByChunk[docId][i] || []).flat()
+              const tagged = ordered.map((p) => ({ ...p, sourceDocId: docId }))
               setFileProgress((prev) => ({
                 ...prev,
-                [docId]: { status: 'done', pairCount: taggedOrdered.length },
+                [docId]: { status: 'done', pairCount: tagged.length },
               }))
-              onFileDone?.(docId, taggedOrdered)
+              onFileDone?.(docId, tagged)
             }
           }
         },
@@ -415,7 +345,7 @@ export function useGenerate() {
       )
     } finally {
       if (generationIdRef.current === myId) {
-        // Reset any docs still showing 'processing' (cancelled before completion)
+        // Any doc still 'processing' was cut short by cancel — reset it
         setFileProgress((prev) => {
           const updated = { ...prev }
           for (const doc of documents) {
@@ -425,12 +355,74 @@ export function useGenerate() {
           }
           return updated
         })
+        setFailedChunks(failures)
         setIsLoading(false)
         setProgress(null)
         if (firstError) setError(firstError)
       }
     }
   }, [])
+
+  // ---------------------------------------------------------------------------
+  // retryFailedChunks() — re-run only the chunks that errored last time
+  //
+  // Without this a handful of transient failures (rate limit, timeout) means
+  // regenerating the entire dataset, paying for every chunk a second time.
+  // Recovered pairs are appended via onRecovered rather than replacing a file's
+  // pairs, since the successful chunks are already in the workspace.
+  // ---------------------------------------------------------------------------
+  const retryFailedChunks = useCallback(async (onRecovered) => {
+    const pending = failedChunks
+    const settings = lastSettingsRef.current
+    if (!pending.length || !settings) return
+
+    const myId = ++generationIdRef.current
+    cancelRef.current = false
+
+    setIsLoading(true)
+    setError(null)
+    setProgress({ fileTotal: 1, completed: 0, total: pending.length, pairsCount: 0 })
+
+    const provider = providerFrom(settings)
+    const stillFailing = []
+    let completed = 0
+    let recoveredPairs = 0
+
+    try {
+      await runConcurrent(
+        pending.map(({ spec }) => makeChunkTask(spec, provider, settings)),
+        Math.max(1, settings.concurrency || 3),
+        (taskIndex, pairs, err) => {
+          if (generationIdRef.current !== myId) return
+
+          const { spec } = pending[taskIndex]
+          completed++
+
+          if (pairs && pairs.length > 0) {
+            const tagged = pairs.map((p) => ({ ...p, sourceDocId: spec.docId }))
+            recoveredPairs += tagged.length
+            onRecovered?.(tagged, spec.docId)
+          } else if (err) {
+            stillFailing.push({ spec, message: err.message })
+          }
+
+          setProgress({
+            fileTotal: 1,
+            completed,
+            total: pending.length,
+            pairsCount: recoveredPairs,
+          })
+        },
+        cancelRef
+      )
+    } finally {
+      if (generationIdRef.current === myId) {
+        setFailedChunks(stillFailing)
+        setIsLoading(false)
+        setProgress(null)
+      }
+    }
+  }, [failedChunks])
 
   // ---------------------------------------------------------------------------
   // regeneratePair() — single-pair targeted replacement (unchanged)
@@ -446,13 +438,7 @@ export function useGenerate() {
     const docForPrompt = { ...document, text: chunks[0].text }
     const { messages, temperature } = buildMessages(docForPrompt, targetSettings)
 
-    const provider = createProvider(settings.providerSlug, {
-      apiKey: settings.apiKey,
-      baseURL: settings.baseURL,
-      model: settings.model,
-      proxyBaseUrl: settings.proxyBaseUrl,
-      subProvider: settings.subProvider,
-    })
+    const provider = providerFrom(settings)
 
     const responseText = await provider.complete(messages, {
       model: settings.model,
@@ -475,6 +461,9 @@ export function useGenerate() {
   return {
     generateAll,
     regeneratePair,
+    retryFailedChunks,
+    failedChunks,
+    clearFailedChunks,
     isLoading,
     progress,
     fileProgress,

@@ -15,6 +15,8 @@ export default function PairCard({
   pair,
   index,
   isSelected,
+  issues,
+  isDuplicate,
   onUpdate,
   onDelete,
   onRegenerate,
@@ -24,6 +26,8 @@ export default function PairCard({
   attributes,
   isDragging,
 }) {
+  const hasError = issues?.some((i) => i.severity === 'error')
+  const hasWarn = issues?.length > 0 && !hasError
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isRegenerating, setIsRegenerating] = useState(false)
   const instrRef = useRef(null)
@@ -52,7 +56,9 @@ export default function PairCard({
     <div
       className={`bg-white border rounded-xl p-4 mb-3 transition-all ${
         isDragging ? 'opacity-50 shadow-2xl ring-2 ring-indigo-300' : 'shadow-sm hover:shadow-md'
-      } ${isSelected ? 'ring-2 ring-indigo-400' : ''}`}
+      } ${isSelected ? 'ring-2 ring-indigo-400' : ''} ${
+        hasError ? 'border-red-300' : hasWarn || isDuplicate ? 'border-amber-300' : 'border-gray-200'
+      }`}
     >
       {/* Card header */}
       <div className="flex items-center gap-2 mb-3">
@@ -82,6 +88,26 @@ export default function PairCard({
           </span>
         )}
 
+        {isDuplicate && (
+          <span
+            className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full"
+            title="Near-identical to an earlier pair"
+          >
+            duplicate
+          </span>
+        )}
+
+        {hasError && (
+          <span className="text-xs text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+            ⚠ issue
+          </span>
+        )}
+        {hasWarn && (
+          <span className="text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+            ⚠ check
+          </span>
+        )}
+
         {/* Spacer */}
         <div className="flex-1" />
 
@@ -93,6 +119,21 @@ export default function PairCard({
           className="w-4 h-4 text-indigo-600 rounded border-gray-300 cursor-pointer"
         />
       </div>
+
+      {/* Quality issues */}
+      {issues?.length > 0 && (
+        <ul
+          className={`mb-3 rounded-lg px-3 py-2 space-y-0.5 text-xs ${
+            hasError
+              ? 'bg-red-50 border border-red-200 text-red-700'
+              : 'bg-amber-50 border border-amber-200 text-amber-800'
+          }`}
+        >
+          {issues.map((issue) => (
+            <li key={issue.code}>• {issue.message}</li>
+          ))}
+        </ul>
+      )}
 
       {/* Instruction */}
       <div className="mb-3">
