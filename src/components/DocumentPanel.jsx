@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { estimateChunks, CHUNK_SIZE } from '../utils/chunker.js'
+import { SUPPORTED_TYPES, HINT_TYPES } from '../utils/fileReader.js'
 
 const PREVIEW_LENGTH = 500
 const CHAR_LIMIT = 10000
@@ -144,7 +145,12 @@ export default function DocumentPanel({
               <p className="text-sm text-gray-500">
                 Drop files here or <span className="text-indigo-600 font-medium">browse</span>
               </p>
-              <p className="text-xs text-gray-400 mt-1">.txt · .md · .pdf · .docx</p>
+              <p
+                className="text-xs text-gray-400 mt-1"
+                title={`All supported types:\n${SUPPORTED_TYPES.join('  ')}`}
+              >
+                {HINT_TYPES}
+              </p>
               {loading && (
                 <p className="text-xs text-indigo-500 mt-2 flex items-center justify-center gap-1">
                   <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -158,7 +164,7 @@ export default function DocumentPanel({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.pdf,.docx"
+              accept={SUPPORTED_TYPES.join(',')}
               multiple
               className="hidden"
               onChange={(e) => handleFiles(e.target.files)}

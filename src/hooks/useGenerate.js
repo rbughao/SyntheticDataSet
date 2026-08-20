@@ -115,7 +115,7 @@ const MAX_CONTEXT_RETRIES = 3
 function buildChunkSpecs(documents, settings) {
   const specs = []
   for (const doc of documents) {
-    const rawChunks = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP)
+    const rawChunks = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP, doc.kind)
     const totalPairs = settings.pairCount
     // Never request more chunks than pairs — each chunk yields at least one pair
     const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
@@ -434,7 +434,7 @@ export function useGenerate() {
       styles: [pair.type === 'instruction' ? 'instruction' : 'factual'],
     }
 
-    const chunks = chunkDocument(document.text, CHUNK_SIZE, CHUNK_OVERLAP)
+    const chunks = chunkDocument(document.text, CHUNK_SIZE, CHUNK_OVERLAP, document.kind)
     const docForPrompt = { ...document, text: chunks[0].text }
     const { messages, temperature } = buildMessages(docForPrompt, targetSettings)
 

@@ -1,6 +1,6 @@
 # Synthetic Dataset Generator by Bughao Lab
 
-A browser-based tool that turns any document into fine-tuning Q&A pairs using the LLM provider of your choice. Upload files, pick a provider, click **Generate** — review the results, then export in the schema your training stack expects.
+A browser-based tool that turns documents, web pages, ebooks, spreadsheets, and source code into fine-tuning Q&A pairs using the LLM provider of your choice. Upload files, pick a provider, click **Generate** — review the results, then export in the schema your training stack expects.
 
 ![React](https://img.shields.io/badge/React-18-blue?logo=react) ![Vite](https://img.shields.io/badge/Vite-5-purple?logo=vite) ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38bdf8?logo=tailwindcss) ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -12,7 +12,7 @@ A browser-based tool that turns any document into fine-tuning Q&A pairs using th
 
 ML practitioners spend hours hand-labeling training data. This tool automates that by:
 
-1. Reading your source documents (PDF, DOCX, TXT, Markdown, or pasted text)
+1. Reading your source material — documents, web pages, spreadsheets, ebooks, slide decks, or entire source files
 2. Splitting long documents into overlapping chunks so nothing is truncated away
 3. Sending every chunk to an LLM in parallel with a structured prompt that demands clean JSON
 4. Rendering each Q&A pair as an editable card you can review, search, rate, and reorder
@@ -25,10 +25,29 @@ Everything runs in the browser. No backend server, no data leaves your machine e
 ## Features
 
 ### Document ingestion
-- Upload `.txt`, `.md`, `.pdf`, `.docx` via drag-and-drop or file picker
-- Paste raw text directly
+
+| Category | Formats |
+|---|---|
+| **Documents** | `.pdf` `.docx` `.epub` `.pptx` |
+| **Text & prose** | `.txt` `.md` `.rst` `.adoc` `.tex` `.org` |
+| **Markup** | `.html` `.htm` `.xhtml` `.xml` |
+| **Tabular** | `.csv` `.tsv` |
+| **Code** | `.py` `.js` `.ts` `.jsx` `.tsx` `.java` `.go` `.rs` `.c` `.cpp` `.cs` `.rb` `.php` `.swift` `.kt` `.scala` `.r` `.lua` `.dart` `.ex` `.clj` `.hs` … |
+| **Config & data** | `.json` `.jsonl` `.yaml` `.toml` `.ini` `.sql` `.graphql` `.proto` `.sh` `.ps1` `.log` … |
+
+- Drag-and-drop or file picker; paste raw text directly
 - **Batch processing** — every loaded document is processed automatically, not just the active one
 - Long documents are split into overlapping chunks (4,000 chars with 300-char overlap) so the full text is covered
+
+Structured formats get format-aware handling rather than a naive text dump:
+
+- **HTML** strips `script`, `style`, `nav`, `header`, `footer`, and other chrome, preferring `<article>`/`<main>` as the content root
+- **CSV/TSV** is rendered as labelled records (`Question: …` / `Answer: …`) instead of comma soup, so the model can tell which value belongs to which column
+- **EPUB** follows the OPF spine so chapters come out in reading order, not alphabetical filename order
+- **PPTX** extracts per-slide text with numeric slide ordering (slide 10 after slide 2, not between 1 and 2)
+- **Code** is chunked on line and block boundaries rather than sentence boundaries, since a period inside `obj.method()` is not a sentence end
+
+If a file parses but yields no usable text — most often a **scanned PDF with no text layer** — the upload fails with a specific message telling you to OCR it, rather than silently adding an empty document that breaks generation later.
 
 ### Generation
 - **Pair count** — 5 to 10,000 per document
@@ -279,6 +298,19 @@ Note: the CORS proxy is a dev-server feature only. For production deployments us
 
 ---
 
+## Testing
+
+File-type parsing has an end-to-end test that generates a fixture per format, uploads each through the real file input in headless Chrome, and asserts on what the app actually extracted:
+
+```bash
+npm run dev             # in one terminal
+npm run test:filetypes   # in another
+```
+
+It covers the tricky cases explicitly — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
+
+---
+
 ## Regenerating the screenshots
 
 The images in this README are produced from the running app by a script, so they stay in sync with the UI:
@@ -303,7 +335,10 @@ It drives headless Chrome via `puppeteer-core` using the Mock provider, so no AP
 | react-window | List virtualization for large datasets |
 | pdfjs-dist 4 | PDF text extraction |
 | mammoth | DOCX text extraction |
-| puppeteer-core | Screenshot generation (dev only) |
+| jszip | EPUB / PPTX archive reading |
+| puppeteer-core | Screenshots and file-type tests (dev only) |
+
+HTML and XML parsing use the browser's built-in `DOMParser` — no dependency.
 
 ---
 

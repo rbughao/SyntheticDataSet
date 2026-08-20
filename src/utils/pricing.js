@@ -104,7 +104,7 @@ export function estimateRun(documents, settings) {
   let inputChars = 0
 
   for (const doc of documents) {
-    const raw = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP)
+    const raw = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP, doc.kind)
     // useGenerate caps chunks at the requested pair count (1 pair minimum per chunk)
     const used = raw.slice(0, Math.min(raw.length, pairCountPerDoc))
     chunkCount += used.length

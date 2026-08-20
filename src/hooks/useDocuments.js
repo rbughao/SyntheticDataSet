@@ -54,6 +54,8 @@ export function useDocuments() {
     id: crypto.randomUUID(),
     name: raw.name,
     text: raw.text,
+    // 'prose' | 'code' | 'data' — selects the chunker's boundary strategy
+    kind: raw.kind || 'prose',
     size: raw.size,
     sizeFormatted: raw.sizeFormatted,
     charCount: raw.charCount,
