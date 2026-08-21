@@ -358,11 +358,15 @@ Click **Export**, choose a schema and format, optionally add a train/val split, 
 ### Anthropic (requires a CORS proxy)
 Anthropic's API does not send `Access-Control-Allow-Origin` headers for browser requests.
 
-**Option A — run a local CORS proxy:**
-```bash
-npx cors-anywhere
+**Option A — run a local proxy** that forwards to `https://api.anthropic.com` and
+adds CORS headers, then set Proxy URL in Settings to its address:
+
 ```
-Then set Proxy URL in Settings to `http://localhost:8080/https://api.anthropic.com`.
+http://localhost:8080
+```
+
+The app appends `/v1/messages` to whatever you enter, so the proxy should
+forward that path straight through.
 
 **Option B — use Google Gemini or Ollama instead** (no proxy needed).
 

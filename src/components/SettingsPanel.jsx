@@ -328,10 +328,10 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
             below, or use Google Gemini / Ollama instead.
           </p>
           <p className="mt-1.5 text-warn-ink/80">
-            With <code className="font-mono">cors-anywhere</code>, prefix the target:
+            For a local proxy forwarding to Anthropic:
           </p>
           <code className="mt-1 block break-url font-mono bg-warn-soft/60 rounded px-1.5 py-1 leading-relaxed">
-            http://localhost:8080/https://api.anthropic.com
+            http://localhost:8080
           </code>
         </div>
       )}
