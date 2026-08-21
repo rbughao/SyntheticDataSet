@@ -37,7 +37,7 @@ Everything runs in the browser. No backend server, no data leaves your machine e
 |---|---|
 | **Upload** | One or more individual files |
 | **Folder** | A whole folder including every subfolder, reviewed before import |
-| **URL** | Fetches a page and extracts its readable text |
+| **URL** | Fetches a page, or crawls a site's links, and extracts readable text |
 | **Paste** | Raw text straight into the box |
 
 Folder and URL both go through the same reader as a normal upload, so all 68
@@ -73,6 +73,27 @@ has navigation, scripts and chrome stripped before the text is kept.
 > URL import needs the dev server's CORS proxy. In a static production build
 > `proxyFetch` falls back to a direct request, which most origins refuse — so
 > this source works under `npm run dev` unless you host a proxy alongside the app.
+
+#### Crawling a site
+
+Tick **Also follow links on this page** to turn one URL into a corpus. The
+crawl is deliberately bounded, because the requests land on someone else's
+server:
+
+- **Same-origin only** — external links, `mailto:` and `tel:` are never followed
+- **Depth 1 or 2**, with a hard page cap (10 / 25 / 50 / 100)
+- **One request at a time**, with a pause between them
+- **`robots.txt` honoured** — the `User-agent: *` group, longest match wins
+- **`noindex` respected** — the page is not imported, though its links still map the site
+- **URLs deduped** by stripping fragments and tracking params, sorting query
+  keys, and treating `/docs` and `/docs/` as one page, so a cycle terminates
+  instead of running to the cap
+
+Linked PDFs, CSVs and other readable documents are imported too, but are not
+crawled into. Everything found goes through the same review gate as a folder,
+so you see what was skipped and what generating would cost before importing.
+
+![Reviewing a crawl](docs/screenshots/10-crawl-review.png)
 
 #### Supported formats
 
@@ -333,6 +354,7 @@ src/
 │   └── index.js                   # Provider registry + factory
 ├── sources/
 │   ├── exclusions.js              # Secret / noise / unsupported filtering
+│   ├── crawler.js                 # Same-origin crawl, robots.txt, dedupe
 │   ├── folderSource.js            # Recursive folder + drag-drop walking
 │   └── urlSource.js               # URL fetch → File, with URL validation
 └── utils/
@@ -382,9 +404,12 @@ File-type parsing has an end-to-end test that generates a fixture per format, up
 npm run dev              # in one terminal
 npm run test:filetypes   # in another
 npm run test:sources
+npm run test:crawl
 ```
 
 `test:filetypes` covers the tricky parsing cases explicitly — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
+
+`test:crawl` starts a local fixture site containing the things that actually break crawlers — a cycle, an off-origin link, a `robots.txt` `Disallow`, a `noindex` page, tracking params disguising one page as many, and a non-HTML file — then runs the real crawler against it.
 
 `test:sources` covers folder and URL import: every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing — that `ftp://` is rejected rather than coerced, that `host:port` is not mistaken for a scheme, and that credentials in a URL are refused.
 

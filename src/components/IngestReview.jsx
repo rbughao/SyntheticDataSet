@@ -50,7 +50,9 @@ function estimateFromSizes(totalBytes, fileCount, settings) {
  * generating from the selection would cost.
  */
 export default function IngestReview({ result, settings, onConfirm, onCancel }) {
-  const { included, excluded, counts } = result
+  const { included, excluded, counts, reasonLabels, title } = result
+  // Crawl results carry their own reason vocabulary (robots, noindex, …)
+  const LABELS = { ...REASON_LABEL, ...(reasonLabels || {}) }
 
   // Pre-select up to the cap, so a huge folder doesn't arrive fully checked
   const [selected, setSelected] = useState(
@@ -93,7 +95,7 @@ export default function IngestReview({ result, settings, onConfirm, onCancel }) 
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-display text-xl font-semibold text-ink">Review before importing</h2>
+            <h2 className="font-display text-xl font-semibold text-ink">{title || 'Review before importing'}</h2>
             <p className="text-xs text-ink-3 mt-1 font-mono">
               {included.length.toLocaleString()} usable ·{' '}
               {excluded.length.toLocaleString()} excluded ·{' '}
@@ -128,7 +130,7 @@ export default function IngestReview({ result, settings, onConfirm, onCancel }) 
         {overCap && (
           <div className="mx-6 mb-3 bg-warn-soft border border-warn-line rounded-xl px-4 py-2.5">
             <p className="text-xs text-warn-ink">
-              This folder has {included.length.toLocaleString()} usable files. The first{' '}
+              {included.length.toLocaleString()} usable items found. The first{' '}
               {DEFAULT_SELECTION_CAP} are selected — tick more below if you need them.
             </p>
           </div>
@@ -187,7 +189,7 @@ export default function IngestReview({ result, settings, onConfirm, onCancel }) 
                 <span>{showExcluded ? '▾' : '▸'}</span>
                 {excluded.length.toLocaleString()} excluded —{' '}
                 {Object.entries(counts)
-                  .map(([reason, n]) => `${n} ${REASON_LABEL[reason]?.toLowerCase() ?? reason}`)
+                  .map(([reason, n]) => `${n} ${LABELS[reason]?.toLowerCase() ?? reason}`)
                   .join(', ')}
               </button>
               {showExcluded && (
@@ -197,7 +199,7 @@ export default function IngestReview({ result, settings, onConfirm, onCancel }) 
                       <span className={`font-mono flex-shrink-0 ${
                         f.reason === REASON.SECRET ? 'text-bad-ink' : 'text-ink-3'
                       }`}>
-                        {REASON_LABEL[f.reason]}
+                        {LABELS[f.reason] ?? f.reason}
                       </span>
                       <span className="text-ink-3 font-mono truncate min-w-0">{f.path}</span>
                     </li>

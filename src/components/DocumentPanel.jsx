@@ -64,6 +64,8 @@ export default function DocumentPanel({
   onAddUrl,
   urlLoading = false,
   urlError = null,
+  crawlProgress = null,
+  onCancelCrawl,
 }) {
   const [activeTab, setActiveTab] = useState('upload')
   const [pasteText, setPasteText] = useState('')
@@ -72,6 +74,9 @@ export default function DocumentPanel({
   const fileInputRef = useRef(null)
   const folderInputRef = useRef(null)
   const [urlValue, setUrlValue] = useState('')
+  const [crawl, setCrawl] = useState(false)
+  const [crawlDepth, setCrawlDepth] = useState(1)
+  const [crawlMax, setCrawlMax] = useState(25)
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId)
 
@@ -108,7 +113,10 @@ export default function DocumentPanel({
   function handleUrlSubmit(e) {
     e.preventDefault()
     if (!urlValue.trim() || urlLoading) return
-    onAddUrl?.(urlValue.trim(), () => setUrlValue(''))
+    const crawlOpts = crawl
+      ? { maxDepth: Number(crawlDepth), maxPages: Number(crawlMax) }
+      : null
+    onAddUrl?.(urlValue.trim(), () => setUrlValue(''), crawlOpts)
   }
 
   function handlePasteAdd() {
@@ -243,6 +251,46 @@ export default function DocumentPanel({
                 placeholder="example.com/article"
                 className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-brand"
               />
+              {/* Crawl toggle */}
+              <label className="flex items-center gap-2 mt-2.5 text-xs text-ink-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={crawl}
+                  onChange={(e) => setCrawl(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-brand"
+                />
+                Also follow links on this page
+              </label>
+
+              {crawl && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="text-xs text-ink-3">
+                    Depth
+                    <select
+                      value={crawlDepth}
+                      onChange={(e) => setCrawlDepth(e.target.value)}
+                      className="mt-1 w-full text-xs bg-surface-3 rounded-lg px-2 py-1.5 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
+                    >
+                      <option value={1}>1 — linked pages</option>
+                      <option value={2}>2 — and their links</option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-ink-3">
+                    Max pages
+                    <select
+                      value={crawlMax}
+                      onChange={(e) => setCrawlMax(e.target.value)}
+                      className="mt-1 w-full text-xs bg-surface-3 rounded-lg px-2 py-1.5 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
+                    >
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={!urlValue.trim() || urlLoading}
@@ -254,9 +302,30 @@ export default function DocumentPanel({
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                 )}
-                {urlLoading ? 'Fetching…' : 'Fetch Page'}
+                {urlLoading ? (crawl ? 'Crawling…' : 'Fetching…') : (crawl ? 'Crawl Site' : 'Fetch Page')}
               </button>
             </form>
+
+            {/* Live crawl progress */}
+            {crawlProgress && (
+              <div className="mt-2 bg-surface-3 rounded-lg px-3 py-2.5">
+                <div className="flex items-center justify-between text-xs font-mono tabular-nums text-ink-2">
+                  <span>{crawlProgress.fetched} fetched</span>
+                  <span className="text-ink-3">{crawlProgress.queued} queued</span>
+                </div>
+                {crawlProgress.current && (
+                  <p className="mt-1 text-[11px] text-ink-3 font-mono break-url leading-snug">
+                    {crawlProgress.current}
+                  </p>
+                )}
+                <button
+                  onClick={onCancelCrawl}
+                  className="mt-2 w-full py-1.5 text-xs font-medium text-ink-3 hover:text-bad-ink hover:bg-bad-soft rounded-full transition-colors"
+                >
+                  Stop crawling
+                </button>
+              </div>
+            )}
 
             {urlError && (
               <p className="mt-2 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2 break-url">
@@ -265,8 +334,9 @@ export default function DocumentPanel({
             )}
 
             <p className="mt-2 text-xs text-ink-3 leading-relaxed">
-              Fetches the page and extracts its readable text, dropping navigation and
-              scripts. HTML, PDF, Markdown, CSV, JSON and Office files all work.
+              {crawl
+                ? 'Follows same-origin links only, honours robots.txt, and pauses between requests. You review everything found before it is imported.'
+                : 'Fetches the page and extracts its readable text, dropping navigation and scripts. HTML, PDF, Markdown, CSV, JSON and Office files all work.'}
             </p>
             {!import.meta.env.DEV && (
               <p className="mt-2 text-xs text-warn-ink bg-warn-soft border border-warn-line rounded-lg px-3 py-2">

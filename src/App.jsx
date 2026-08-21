@@ -35,6 +35,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js'
 import { exportBufferAs } from './hooks/useExport.js'
 import { PROVIDERS } from './providers/index.js'
 import { fetchUrlAsFile } from './sources/urlSource.js'
+import { crawlSite, SKIP_LABEL } from './sources/crawler.js'
 import { findDuplicates } from './utils/dedup.js'
 import { validateAll } from './utils/quality.js'
 import {
@@ -150,6 +151,8 @@ export default function App() {
   const [ingestResult, setIngestResult] = useState(null)   // partition() output
   const [urlLoading, setUrlLoading] = useState(false)
   const [urlError, setUrlError] = useState(null)
+  const [crawlProgress, setCrawlProgress] = useState(null)
+  const crawlCancelRef = useRef({ current: false })
 
   async function handleFolderPicked(result) {
     setIngestResult(result)
@@ -160,17 +163,70 @@ export default function App() {
     await addFiles(selectedItems.map((i) => i.file))
   }
 
-  async function handleAddUrl(rawUrl, onDone) {
+  async function handleAddUrl(rawUrl, onDone, crawlOpts) {
     setUrlLoading(true)
     setUrlError(null)
+
+    // Single page: nothing to review, so import it straight away
+    if (!crawlOpts) {
+      try {
+        const file = await fetchUrlAsFile(rawUrl)
+        const { added, failed } = await addFiles([file])
+        if (added) onDone?.()
+        else if (failed.length) setUrlError(failed[0].message)
+      } catch (err) {
+        setUrlError(err.message)
+      } finally {
+        setUrlLoading(false)
+      }
+      return
+    }
+
+    // Crawl: fetching is already paid for by the time we finish, but the user
+    // still reviews (and pays for) generation, so results go through the same
+    // gate a folder does.
+    crawlCancelRef.current.current = false
+    setCrawlProgress({ fetched: 0, skipped: 0, queued: 1, current: null })
     try {
-      const file = await fetchUrlAsFile(rawUrl)
-      const { added, failed } = await addFiles([file])
-      if (added) onDone?.()
-      else if (failed.length) setUrlError(failed[0].message)
+      const { pages, skipped } = await crawlSite(rawUrl, crawlOpts, {
+        onProgress: setCrawlProgress,
+        cancelRef: crawlCancelRef.current,
+      })
+
+      if (!pages.length) {
+        setUrlError(
+          skipped.length
+            ? `Nothing readable found — ${skipped.length} page(s) skipped.`
+            : 'Nothing readable found at that address.'
+        )
+        return
+      }
+
+      setIngestResult({
+        included: pages.map((pg) => ({
+          path: pg.url,
+          name: pg.file.name,
+          size: pg.file.size,
+          file: pg.file,
+        })),
+        excluded: skipped.map((sk) => ({
+          path: sk.url,
+          name: sk.url,
+          reason: sk.reason,
+          detail: sk.detail,
+        })),
+        counts: skipped.reduce((acc, sk) => {
+          acc[sk.reason] = (acc[sk.reason] || 0) + 1
+          return acc
+        }, {}),
+        reasonLabels: SKIP_LABEL,
+        title: 'Review crawled pages',
+      })
+      onDone?.()
     } catch (err) {
       setUrlError(err.message)
     } finally {
+      setCrawlProgress(null)
       setUrlLoading(false)
     }
   }
@@ -437,6 +493,8 @@ export default function App() {
           onAddUrl={handleAddUrl}
           urlLoading={urlLoading}
           urlError={urlError}
+          crawlProgress={crawlProgress}
+          onCancelCrawl={() => { crawlCancelRef.current.current = true }}
         />
         <SettingsPanel settings={settings} onChange={updateSettings} />
 
