@@ -37,6 +37,7 @@ Everything runs in the browser. No backend server, no data leaves your machine e
 |---|---|
 | **Upload** | One or more individual files |
 | **Folder** | A whole folder including every subfolder, reviewed before import |
+| **Cloud** | A folder from a connected Google Drive or OneDrive account |
 | **URL** | Fetches a page, or crawls a site's links, and extracts readable text |
 | **Paste** | Raw text straight into the box |
 
@@ -124,9 +125,23 @@ the code is exchanged for a token by the app itself.
 - `state` is verified on return, and messages from any other origin or source are ignored
 - Expired tokens are purged on read, and a `401` clears the session and asks you to sign in again
 
-> Signing in gives the app read access to your Drive or OneDrive. Browsing and
-> importing from a connected account is the next phase — the connection itself
-> is what's implemented today.
+**Importing.** Once an account is connected, the **Cloud** tab lists folders
+from it. Subfolders are included, and listing is metadata only — nothing is
+downloaded until you confirm in the review step, so browsing a large Drive
+costs nothing.
+
+- **Google Drive** — paste a folder link or ID. Native formats are exported on
+  the way out, since Docs, Sheets and Slides are not files and cannot be
+  downloaded directly: Docs and Slides become plain text, Sheets become CSV,
+  which then flows into the row-aware CSV reader. Everything else downloads
+  verbatim.
+- **OneDrive** — paste a folder share link, or leave the box empty for your
+  whole drive. No export step is needed: Office files download as `.docx`,
+  `.xlsx` and `.pptx`, which the app already parses. Downloads use Graph's
+  pre-signed URL, which must *not* carry the bearer token.
+
+The same exclusion rules apply as for a local folder — a Drive can hold a
+`.env` too.
 
 #### Supported formats
 
@@ -363,6 +378,7 @@ src/
 │   ├── PairCard.jsx               # Editable Q&A card with quality + duplicate badges
 │   ├── ThemeToggle.jsx            # Light / dark / system cycle
 │   ├── CloudAccounts.jsx          # Connect / disconnect cloud sources
+│   ├── CloudBrowser.jsx           # Pick a folder from a connected account
 │   ├── IngestReview.jsx           # Selection + cost gate for bulk import
 │   ├── VirtualPairList.jsx        # Windowed list for large datasets
 │   ├── WorkspaceHeader.jsx        # Search, filters, bulk actions, export
@@ -391,6 +407,8 @@ src/
 │   ├── exclusions.js              # Secret / noise / unsupported filtering
 │   ├── cloudProviders.js          # Drive / OneDrive endpoints + client IDs
 │   ├── crawler.js                 # Same-origin crawl, robots.txt, dedupe
+│   ├── googleDriveSource.js       # Drive listing + native-format export
+│   ├── oneDriveSource.js          # Graph listing + pre-signed download
 │   ├── oauth.js                   # Authorization Code + PKCE popup flow
 │   ├── folderSource.js            # Recursive folder + drag-drop walking
 │   └── urlSource.js               # URL fetch → File, with URL validation
@@ -442,11 +460,14 @@ npm run dev              # in one terminal
 npm run test:filetypes   # in another
 npm run test:sources
 npm run test:crawl
+npm run test:cloud
 ```
 
 `test:filetypes` covers the tricky parsing cases explicitly — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
 
 `test:crawl` starts a local fixture site containing the things that actually break crawlers — a cycle, an off-origin link, a `robots.txt` `Disallow`, a `noindex` page, tracking params disguising one page as many, and a non-HTML file — then runs the real crawler against it.
+
+`test:cloud` stubs `fetch` with a fake Drive and Graph API and drives the real adapters against it, so it tests this app's logic — pagination, folder recursion, native-format export, download routing, exclusions on cloud items — rather than the providers'. The live consent flow needs a real client ID and account and is not automated.
 
 `test:sources` covers folder and URL import: every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing — that `ftp://` is rejected rather than coerced, that `host:port` is not mistaken for a scheme, and that credentials in a URL are refused.
 

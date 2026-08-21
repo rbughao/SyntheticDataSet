@@ -3,6 +3,7 @@ import { estimateChunks, CHUNK_SIZE } from '../utils/chunker.js'
 import { SUPPORTED_TYPES, HINT_TYPES } from '../utils/fileReader.js'
 import { fromFileList, fromDataTransfer, dragHasDirectory } from '../sources/folderSource.js'
 import { partition } from '../sources/exclusions.js'
+import CloudBrowser from './CloudBrowser.jsx'
 
 const PREVIEW_LENGTH = 500
 const CHAR_LIMIT = 10000
@@ -66,6 +67,12 @@ export default function DocumentPanel({
   urlError = null,
   crawlProgress = null,
   onCancelCrawl,
+  connections = {},
+  cloudBusy = null,
+  cloudProgress = null,
+  cloudError = null,
+  onCloudImport,
+  onCancelCloud,
 }) {
   const [activeTab, setActiveTab] = useState('upload')
   const [pasteText, setPasteText] = useState('')
@@ -144,11 +151,11 @@ export default function DocumentPanel({
 
       {/* Tabs */}
       <div className="flex border-b border-line px-5">
-        {['upload', 'folder', 'url', 'paste'].map((tab) => (
+        {['upload', 'folder', 'cloud', 'url', 'paste'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-2.5 py-2 text-[13px] font-medium border-b-2 transition-colors capitalize ${
+            className={`px-2 py-2 text-[12.5px] font-medium border-b-2 transition-colors capitalize ${
               activeTab === tab
                 ? 'border-brand text-brand-ink'
                 : 'border-transparent text-ink-3 hover:text-ink-2'
@@ -237,6 +244,18 @@ export default function DocumentPanel({
               excluded automatically.
             </p>
           </div>
+        )}
+
+        {/* Cloud tab */}
+        {activeTab === 'cloud' && (
+          <CloudBrowser
+            connections={connections}
+            cloudBusy={cloudBusy}
+            cloudProgress={cloudProgress}
+            cloudError={cloudError}
+            onImport={onCloudImport}
+            onCancel={onCancelCloud}
+          />
         )}
 
         {/* URL tab */}

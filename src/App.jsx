@@ -37,6 +37,9 @@ import { exportBufferAs } from './hooks/useExport.js'
 import { PROVIDERS } from './providers/index.js'
 import { fetchUrlAsFile } from './sources/urlSource.js'
 import { crawlSite, SKIP_LABEL } from './sources/crawler.js'
+import { partition } from './sources/exclusions.js'
+import * as gdrive from './sources/googleDriveSource.js'
+import * as onedrive from './sources/oneDriveSource.js'
 import { findDuplicates } from './utils/dedup.js'
 import { validateAll } from './utils/quality.js'
 import {
@@ -156,13 +159,109 @@ export default function App() {
   const [crawlProgress, setCrawlProgress] = useState(null)
   const crawlCancelRef = useRef({ current: false })
 
+  // ── Cloud import (Drive / OneDrive) ───────────────────────────────────────
+  const [cloudBusy, setCloudBusy] = useState(null)         // provider id while listing
+  const [cloudProgress, setCloudProgress] = useState(null)
+  const [cloudError, setCloudError] = useState(null)       // { id, message }
+  const cloudCancelRef = useRef({ current: false })
+
+  /**
+   * List a cloud folder and hand the result to the review gate.
+   *
+   * Only listing happens here — nothing is downloaded until the user confirms,
+   * so browsing a large Drive costs nothing but metadata calls.
+   */
+  async function handleCloudImport(providerId, input) {
+    setCloudBusy(providerId)
+    setCloudError(null)
+    setCloudProgress({ found: 0, folders: 0, current: null })
+    cloudCancelRef.current.current = false
+
+    try {
+      const opts = {
+        maxItems: 500,
+        onProgress: setCloudProgress,
+        cancelRef: cloudCancelRef.current,
+      }
+
+      let items
+      if (providerId === 'gdrive') {
+        const folderId = gdrive.parseFolderId(input)
+        if (!folderId) throw new Error('That does not look like a Drive folder link or ID.')
+        items = await gdrive.listFolder(folderId, opts)
+      } else {
+        const start = await onedrive.resolveStart(input)
+        items = await onedrive.listFolder(start, opts)
+      }
+
+      if (!items.length) throw new Error('That folder has no files in it.')
+
+      // Same exclusion rules as a local folder — a Drive can hold a .env too
+      const result = partition(items)
+      if (!result.included.length) {
+        throw new Error(
+          `Found ${items.length} file(s), but none are usable (${
+            Object.entries(result.counts).map(([r, n]) => `${n} ${r}`).join(', ')
+          }).`
+        )
+      }
+
+      // Carry the adapter through so confirm() knows how to download
+      setIngestResult({
+        ...result,
+        title: `Review ${providerId === 'gdrive' ? 'Google Drive' : 'OneDrive'} files`,
+        cloudProviderId: providerId,
+      })
+    } catch (err) {
+      setCloudError({ id: providerId, message: err.message })
+    } finally {
+      setCloudBusy(null)
+      setCloudProgress(null)
+    }
+  }
+
   async function handleFolderPicked(result) {
     setIngestResult(result)
   }
 
   async function handleIngestConfirm(selectedItems) {
+    const providerId = ingestResult?.cloudProviderId
     setIngestResult(null)
-    await addFiles(selectedItems.map((i) => i.file))
+
+    // Local folder and crawl items already carry their File
+    if (!providerId) {
+      await addFiles(selectedItems.map((i) => i.file))
+      return
+    }
+
+    // Cloud items are metadata only — download now that the user has agreed
+    const adapter = providerId === 'gdrive' ? gdrive : onedrive
+    setCloudBusy(providerId)
+    setCloudProgress({ found: 0, folders: 0, current: 'Downloading…' })
+    const files = []
+    const failed = []
+    try {
+      for (let i = 0; i < selectedItems.length; i++) {
+        const item = selectedItems[i]
+        setCloudProgress({ found: i, folders: selectedItems.length - i, current: item.name })
+        try {
+          files.push(await adapter.fetchFile(item))
+        } catch (err) {
+          failed.push(item.name)
+        }
+      }
+    } finally {
+      setCloudBusy(null)
+      setCloudProgress(null)
+    }
+
+    if (files.length) await addFiles(files)
+    if (failed.length) {
+      setCloudError({
+        id: providerId,
+        message: `Could not download ${failed.length} file(s): ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`,
+      })
+    }
   }
 
   async function handleAddUrl(rawUrl, onDone, crawlOpts) {
@@ -497,6 +596,12 @@ export default function App() {
           urlError={urlError}
           crawlProgress={crawlProgress}
           onCancelCrawl={() => { crawlCancelRef.current.current = true }}
+          connections={cloudAuth.connections}
+          cloudBusy={cloudBusy}
+          cloudProgress={cloudProgress}
+          cloudError={cloudError}
+          onCloudImport={handleCloudImport}
+          onCancelCloud={() => { cloudCancelRef.current.current = true }}
         />
         <SettingsPanel settings={settings} onChange={updateSettings} cloudAuth={cloudAuth} />
 
