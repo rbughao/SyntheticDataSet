@@ -1,6 +1,8 @@
 # Synthetic Dataset Generator by Bughao Lab
 
-A browser-based tool that turns documents, web pages, ebooks, spreadsheets, and source code into fine-tuning Q&A pairs using the LLM provider of your choice. Upload files, pick a provider, click **Generate** — review the results, then export in the schema your training stack expects.
+A browser-based tool that turns documents, web pages, ebooks, spreadsheets, and source code into fine-tuning Q&A pairs using the LLM provider of your choice.
+
+Point it at a file, a whole folder, a website, or a Google Drive / OneDrive folder — then review the results and export in the schema your training stack expects. Everything runs in the browser; there is no backend.
 
 ![React](https://img.shields.io/badge/React-18-blue?logo=react) ![Vite](https://img.shields.io/badge/Vite-5-purple?logo=vite) ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38bdf8?logo=tailwindcss) ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -19,13 +21,15 @@ A browser-based tool that turns documents, web pages, ebooks, spreadsheets, and 
 
 ML practitioners spend hours hand-labeling training data. This tool automates that by:
 
-1. Reading your source material — documents, web pages, spreadsheets, ebooks, slide decks, or entire source files
+1. Gathering your source material — from a file, a folder tree, a website, a cloud drive, or the clipboard
 2. Splitting long documents into overlapping chunks so nothing is truncated away
 3. Sending every chunk to an LLM in parallel with a structured prompt that demands clean JSON
 4. Rendering each Q&A pair as an editable card you can review, search, rate, and reorder
 5. Exporting in Instruction, ChatML, Alpaca, or ShareGPT schema — with an optional train/validation split
 
 Everything runs in the browser. No backend server, no data leaves your machine except the API calls you authorize.
+
+Bulk sources — folder, crawl, and cloud — all pass through a **review step** that shows what was found, what was excluded and why, and what generating from the selection would cost, before anything is imported.
 
 ---
 
@@ -41,8 +45,10 @@ Everything runs in the browser. No backend server, no data leaves your machine e
 | **URL** | Fetches a page, or crawls a site's links, and extracts readable text |
 | **Paste** | Raw text straight into the box |
 
-Folder and URL both go through the same reader as a normal upload, so all 68
-formats below work from any source.
+Every source ends up producing the same thing — a file handed to the same
+reader — so all 68 formats below work from any of them, and chunking,
+generation, dedup, quality checks and export behave identically regardless of
+where the material came from.
 
 #### Folder import
 
@@ -279,7 +285,17 @@ To try it with no API key at all, select **Mock (Simulation)** as the provider �
 
 ### 1 — Load documents
 
-Use the **Upload** tab to drag-and-drop or browse for files, or the **Paste** tab for raw text. Load as many as you like: all of them are processed when you hit Generate.
+Pick a source tab:
+
+- **Upload** — drag-and-drop or browse for individual files (a dropped folder works here too)
+- **Folder** — choose a folder; every subfolder is included
+- **Cloud** — a folder from a connected Google Drive or OneDrive account
+- **URL** — fetch one page, or tick the box to crawl the site's links
+- **Paste** — raw text straight into the box
+
+Load as many as you like from as many sources as you like: everything queued is
+processed when you hit Generate. Folder, Cloud and crawl imports pause at a
+review step first.
 
 ![Workspace ready](docs/screenshots/01-workspace-ready.png)
 
@@ -453,23 +469,34 @@ Note: the CORS proxy is a dev-server feature only. For production deployments us
 
 ## Testing
 
-File-type parsing has an end-to-end test that generates a fixture per format, uploads each through the real file input in headless Chrome, and asserts on what the app actually extracted:
+There are no unit tests. Every suite drives the real app in headless Chrome
+against generated fixtures, because the interesting failures here live in
+browser behaviour — file inputs, `DOMParser`, ZIP readers, redirects — not in
+pure functions.
 
 ```bash
-npm run dev              # in one terminal
-npm run test:filetypes   # in another
+npm run dev              # in one terminal, then any of:
+npm run test:filetypes
 npm run test:sources
 npm run test:crawl
 npm run test:cloud
 ```
 
-`test:filetypes` covers the tricky parsing cases explicitly — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
+| Suite | Checks | Covers |
+|---|---|---|
+| `test:filetypes` | 12 | One fixture per format, uploaded through the real file input |
+| `test:sources` | 46 | Folder and URL import, plus every exclusion rule |
+| `test:crawl` | 33 | A local fixture site built to break naive crawlers |
+| `test:cloud` | 36 | Drive and OneDrive adapters against a stubbed API |
 
-`test:crawl` starts a local fixture site containing the things that actually break crawlers — a cycle, an off-origin link, a `robots.txt` `Disallow`, a `noindex` page, tracking params disguising one page as many, and a non-HTML file — then runs the real crawler against it.
+Each suite targets the cases that actually bite:
 
-`test:cloud` stubs `fetch` with a fake Drive and Graph API and drives the real adapters against it, so it tests this app's logic — pagination, folder recursion, native-format export, download routing, exclusions on cloud items — rather than the providers'. The live consent flow needs a real client ID and account and is not automated.
+- **`test:filetypes`** — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
+- **`test:sources`** — every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing: `ftp://` is rejected rather than coerced, `host:port` is not mistaken for a scheme, and credentials in a URL are refused.
+- **`test:crawl`** — starts a local fixture site containing a cycle, an off-origin link, a `robots.txt` `Disallow`, a `noindex` page, tracking params disguising one page as many, and a non-HTML file, then runs the real crawler against it.
+- **`test:cloud`** — stubs `fetch` with a fake Drive and Graph API, so it tests this app's logic (pagination, recursion, native-format export, download routing, exclusions on cloud items) rather than the providers'.
 
-`test:sources` covers folder and URL import: every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing — that `ftp://` is rejected rather than coerced, that `host:port` is not mistaken for a scheme, and that credentials in a URL are refused.
+**Not automated:** the OAuth consent flow. It needs a real client ID and account, so everything up to and including the token request is tested, but a live sign-in is not.
 
 ---
 
@@ -498,9 +525,13 @@ It drives headless Chrome via `puppeteer-core` using the Mock provider, so no AP
 | pdfjs-dist 4 | PDF text extraction |
 | mammoth | DOCX text extraction |
 | jszip | EPUB / PPTX archive reading |
-| puppeteer-core | Screenshots and file-type tests (dev only) |
+| puppeteer-core | Screenshots and the test suites (dev only) |
 
-HTML and XML parsing use the browser's built-in `DOMParser` — no dependency. Theming is plain CSS variables consumed through Tailwind, so there is no runtime theming library either.
+Three things deliberately have **no** dependency:
+
+- **HTML and XML parsing** uses the browser's built-in `DOMParser`
+- **Theming** is plain CSS variables consumed through Tailwind — no runtime theming library
+- **OAuth** is Authorization Code + PKCE implemented directly, rather than pulling in Google Identity Services and MSAL for one flow each
 
 ---
 
