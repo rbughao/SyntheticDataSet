@@ -31,7 +31,50 @@ Everything runs in the browser. No backend server, no data leaves your machine e
 
 ## Features
 
-### Document ingestion
+### Getting material in
+
+| Source | What it does |
+|---|---|
+| **Upload** | One or more individual files |
+| **Folder** | A whole folder including every subfolder, reviewed before import |
+| **URL** | Fetches a page and extracts its readable text |
+| **Paste** | Raw text straight into the box |
+
+Folder and URL both go through the same reader as a normal upload, so all 68
+formats below work from any source.
+
+#### Folder import
+
+Selecting a folder walks every subfolder and opens a review step before
+anything is imported — you see what was found, what was excluded and why, and
+what generating from the selection would cost.
+
+![Reviewing a folder import](docs/screenshots/09-ingest-review.png)
+
+Excluded automatically, and reported rather than hidden:
+
+- **Possible secrets** — `.env*`, private keys, `credentials.json`, `.pem`/`.p12`/`.key`, anything under `.ssh/` or `.aws/`
+- **Build and VCS noise** — `.git/`, `node_modules/`, `dist/`, `__pycache__/`, and similar
+- **Unsupported types**, **empty files**, and anything over 5 MB
+
+> Document text is sent to your LLM provider. Excluding secrets by default is
+> what stops a folder import from becoming a credential leak — which is why
+> secrets are never selectable, not merely unchecked.
+
+Large folders arrive with the first 200 files selected rather than all of them,
+so a repository with thousands of files does not silently queue an expensive run.
+
+#### URL import
+
+Fetches the page through the dev CORS proxy and runs it through the normal
+reader, so HTML, PDF, Markdown, CSV, JSON and Office documents all work. HTML
+has navigation, scripts and chrome stripped before the text is kept.
+
+> URL import needs the dev server's CORS proxy. In a static production build
+> `proxyFetch` falls back to a direct request, which most origins refuse — so
+> this source works under `npm run dev` unless you host a proxy alongside the app.
+
+#### Supported formats
 
 | Category | Formats |
 |---|---|
@@ -42,7 +85,7 @@ Everything runs in the browser. No backend server, no data leaves your machine e
 | **Code** | `.py` `.js` `.ts` `.jsx` `.tsx` `.java` `.go` `.rs` `.c` `.cpp` `.cs` `.rb` `.php` `.swift` `.kt` `.scala` `.r` `.lua` `.dart` `.ex` `.clj` `.hs` … |
 | **Config & data** | `.json` `.jsonl` `.yaml` `.toml` `.ini` `.sql` `.graphql` `.proto` `.sh` `.ps1` `.log` … |
 
-- Drag-and-drop or file picker; paste raw text directly
+- Drag-and-drop (including whole folders), file picker, folder picker, URL, or paste
 - **Batch processing** — every loaded document is processed automatically, not just the active one
 - Long documents are split into overlapping chunks (4,000 chars with 300-char overlap) so the full text is covered
 
@@ -265,6 +308,7 @@ src/
 │   ├── GenerateButton.jsx         # Trigger, progress bars, cancel
 │   ├── PairCard.jsx               # Editable Q&A card with quality + duplicate badges
 │   ├── ThemeToggle.jsx            # Light / dark / system cycle
+│   ├── IngestReview.jsx           # Selection + cost gate for bulk import
 │   ├── VirtualPairList.jsx        # Windowed list for large datasets
 │   ├── WorkspaceHeader.jsx        # Search, filters, bulk actions, export
 │   ├── ExportModal.jsx            # Schema + format picker, split, live preview
@@ -287,6 +331,10 @@ src/
 │   ├── CustomProvider.js
 │   ├── MockProvider.js            # Offline simulation (no network)
 │   └── index.js                   # Provider registry + factory
+├── sources/
+│   ├── exclusions.js              # Secret / noise / unsupported filtering
+│   ├── folderSource.js            # Recursive folder + drag-drop walking
+│   └── urlSource.js               # URL fetch → File, with URL validation
 └── utils/
     ├── chunker.js                 # Semantic-boundary document splitter
     ├── promptBuilder.js           # System + user prompt construction
@@ -331,11 +379,14 @@ Note: the CORS proxy is a dev-server feature only. For production deployments us
 File-type parsing has an end-to-end test that generates a fixture per format, uploads each through the real file input in headless Chrome, and asserts on what the app actually extracted:
 
 ```bash
-npm run dev             # in one terminal
+npm run dev              # in one terminal
 npm run test:filetypes   # in another
+npm run test:sources
 ```
 
-It covers the tricky cases explicitly — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
+`test:filetypes` covers the tricky parsing cases explicitly — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
+
+`test:sources` covers folder and URL import: every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing — that `ftp://` is rejected rather than coerced, that `host:port` is not mistaken for a scheme, and that credentials in a URL are refused.
 
 ---
 

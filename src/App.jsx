@@ -26,6 +26,7 @@ import LargeOutputModal from './components/LargeOutputModal.jsx'
 import PreflightEstimate from './components/PreflightEstimate.jsx'
 import VirtualPairList, { VIRTUALIZE_THRESHOLD } from './components/VirtualPairList.jsx'
 import ThemeToggle from './components/ThemeToggle.jsx'
+import IngestReview from './components/IngestReview.jsx'
 
 import { useDocuments } from './hooks/useDocuments.js'
 import { useGenerate } from './hooks/useGenerate.js'
@@ -33,6 +34,7 @@ import { useTheme } from './hooks/useTheme.js'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js'
 import { exportBufferAs } from './hooks/useExport.js'
 import { PROVIDERS } from './providers/index.js'
+import { fetchUrlAsFile } from './sources/urlSource.js'
 import { findDuplicates } from './utils/dedup.js'
 import { validateAll } from './utils/quality.js'
 import {
@@ -110,6 +112,7 @@ export default function App() {
     loading: docLoading,
     error: docError,
     addFile,
+    addFiles,
     addPaste,
     removeDocument,
     setActiveDocument,
@@ -142,6 +145,35 @@ export default function App() {
 
   const { mode: themeMode, cycle: cycleTheme } = useTheme()
   const searchInputRef = useRef(null)
+
+  // ── Bulk ingestion (folder) + single-page fetch (URL) ─────────────────────
+  const [ingestResult, setIngestResult] = useState(null)   // partition() output
+  const [urlLoading, setUrlLoading] = useState(false)
+  const [urlError, setUrlError] = useState(null)
+
+  async function handleFolderPicked(result) {
+    setIngestResult(result)
+  }
+
+  async function handleIngestConfirm(selectedItems) {
+    setIngestResult(null)
+    await addFiles(selectedItems.map((i) => i.file))
+  }
+
+  async function handleAddUrl(rawUrl, onDone) {
+    setUrlLoading(true)
+    setUrlError(null)
+    try {
+      const file = await fetchUrlAsFile(rawUrl)
+      const { added, failed } = await addFiles([file])
+      if (added) onDone?.()
+      else if (failed.length) setUrlError(failed[0].message)
+    } catch (err) {
+      setUrlError(err.message)
+    } finally {
+      setUrlLoading(false)
+    }
+  }
 
   // ── Session restore ────────────────────────────────────────────────────────
   const [restorable, setRestorable] = useState(null) // { savedAt, documents, pairs }
@@ -401,6 +433,10 @@ export default function App() {
           onRemove={removeDocument}
           onSetActive={setActiveDocument}
           onClearError={clearDocError}
+          onFolderPicked={handleFolderPicked}
+          onAddUrl={handleAddUrl}
+          urlLoading={urlLoading}
+          urlError={urlError}
         />
         <SettingsPanel settings={settings} onChange={updateSettings} />
 
@@ -791,6 +827,16 @@ export default function App() {
           pairs={pairs}
           selectedIds={selectedIds}
           onClose={() => setShowExportModal(false)}
+        />
+      )}
+
+      {/* Bulk ingest review — the gate between picking a folder and spending money */}
+      {ingestResult && (
+        <IngestReview
+          result={ingestResult}
+          settings={settings}
+          onConfirm={handleIngestConfirm}
+          onCancel={() => setIngestResult(null)}
         />
       )}
 

@@ -11,6 +11,12 @@ function docsReducer(state, action) {
         documents: [...state.documents, action.doc],
         activeDocumentId: state.activeDocumentId ?? action.doc.id,
       }
+    case 'ADD_MANY':
+      return {
+        ...state,
+        documents: [...state.documents, ...action.docs],
+        activeDocumentId: state.activeDocumentId ?? action.docs[0]?.id ?? null,
+      }
     case 'REMOVE': {
       const remaining = state.documents.filter((d) => d.id !== action.id)
       const activeId =
@@ -73,6 +79,47 @@ export function useDocuments() {
     }
   }, [])
 
+  /**
+   * Read and add many files at once (folder import, URL fetch).
+   *
+   * Files are read sequentially rather than in parallel: reads are fast and
+   * local, but a few thousand concurrent FileReaders will exhaust memory.
+   * Individual failures are collected and reported instead of aborting the
+   * whole import.
+   *
+   * @param {File[]} files
+   * @param {(done:number, total:number)=>void} [onProgress]
+   * @returns {Promise<{ added:number, failed:Array<{name:string,message:string}> }>}
+   */
+  const addFiles = useCallback(async (files, onProgress) => {
+    dispatch({ type: 'SET_LOADING', value: true })
+    const docs = []
+    const failed = []
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      try {
+        const raw = await readFile(file)
+        docs.push(makeDoc(raw))
+      } catch (err) {
+        failed.push({ name: file.name, message: err.message })
+      }
+      onProgress?.(i + 1, files.length)
+    }
+
+    if (docs.length) dispatch({ type: 'ADD_MANY', docs })
+    if (failed.length) {
+      dispatch({
+        type: 'SET_ERROR',
+        message: failed.length === 1
+          ? `Could not read ${failed[0].name}: ${failed[0].message}`
+          : `Skipped ${failed.length} unreadable files (e.g. ${failed[0].name}).`,
+      })
+    }
+    dispatch({ type: 'SET_LOADING', value: false })
+    return { added: docs.length, failed }
+  }, [])
+
   const addPaste = useCallback((text, label) => {
     if (!text.trim()) return
     const raw = readPastedText(text, label)
@@ -109,6 +156,7 @@ export function useDocuments() {
     loading: state.loading,
     error: state.error,
     addFile,
+    addFiles,
     addPaste,
     removeDocument,
     setActiveDocument,

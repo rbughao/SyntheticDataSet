@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { estimateChunks, CHUNK_SIZE } from '../utils/chunker.js'
 import { SUPPORTED_TYPES, HINT_TYPES } from '../utils/fileReader.js'
+import { fromFileList, fromDataTransfer, dragHasDirectory } from '../sources/folderSource.js'
+import { partition } from '../sources/exclusions.js'
 
 const PREVIEW_LENGTH = 500
 const CHAR_LIMIT = 10000
@@ -58,12 +60,18 @@ export default function DocumentPanel({
   onRemove,
   onSetActive,
   onClearError,
+  onFolderPicked,
+  onAddUrl,
+  urlLoading = false,
+  urlError = null,
 }) {
   const [activeTab, setActiveTab] = useState('upload')
   const [pasteText, setPasteText] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [showFullPreview, setShowFullPreview] = useState(false)
   const fileInputRef = useRef(null)
+  const folderInputRef = useRef(null)
+  const [urlValue, setUrlValue] = useState('')
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId)
 
@@ -78,10 +86,29 @@ export default function DocumentPanel({
     Array.from(files).forEach((file) => onAddFile(file))
   }
 
-  function handleDrop(e) {
+  async function handleDrop(e) {
     e.preventDefault()
     setIsDragging(false)
+    // A dropped folder appears only via the entry API — dataTransfer.files is
+    // empty for directories, so check before falling back to plain files.
+    if (onFolderPicked && dragHasDirectory(e.dataTransfer)) {
+      const items = await fromDataTransfer(e.dataTransfer.items)
+      onFolderPicked(partition(items))
+      return
+    }
     handleFiles(e.dataTransfer.files)
+  }
+
+  function handleFolderInput(e) {
+    if (!e.target.files?.length) return
+    onFolderPicked?.(fromFileList(e.target.files))
+    e.target.value = ''   // let the same folder be re-picked
+  }
+
+  function handleUrlSubmit(e) {
+    e.preventDefault()
+    if (!urlValue.trim() || urlLoading) return
+    onAddUrl?.(urlValue.trim(), () => setUrlValue(''))
   }
 
   function handlePasteAdd() {
@@ -109,17 +136,17 @@ export default function DocumentPanel({
 
       {/* Tabs */}
       <div className="flex border-b border-line px-5">
-        {['upload', 'paste'].map((tab) => (
+        {['upload', 'folder', 'url', 'paste'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-2.5 py-2 text-[13px] font-medium border-b-2 transition-colors capitalize ${
               activeTab === tab
                 ? 'border-brand text-brand-ink'
                 : 'border-transparent text-ink-3 hover:text-ink-2'
             }`}
           >
-            {tab === 'upload' ? 'Upload' : 'Paste'}
+            {tab === 'url' ? 'URL' : tab}
           </button>
         ))}
       </div>
@@ -169,6 +196,84 @@ export default function DocumentPanel({
               className="hidden"
               onChange={(e) => handleFiles(e.target.files)}
             />
+          </div>
+        )}
+
+        {/* Folder tab */}
+        {activeTab === 'folder' && (
+          <div>
+            <div
+              onClick={() => folderInputRef.current?.click()}
+              className="border-2 border-dashed border-line hover:border-line-strong hover:bg-surface-2 rounded-xl p-6 text-center cursor-pointer transition-colors"
+            >
+              <svg className="w-8 h-8 mx-auto text-ink-3 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+              <p className="text-sm text-ink-3">
+                Choose a <span className="text-brand-ink font-medium">folder</span>
+              </p>
+              <p className="text-xs text-ink-3 mt-1">Includes every subfolder</p>
+            </div>
+            <input
+              ref={folderInputRef}
+              type="file"
+              webkitdirectory=""
+              directory=""
+              multiple
+              className="hidden"
+              onChange={handleFolderInput}
+            />
+            <p className="mt-2 text-xs text-ink-3 leading-relaxed">
+              You'll see what was found and what it costs before anything is imported.
+              Secrets like <code className="font-mono">.env</code> and private keys are
+              excluded automatically.
+            </p>
+          </div>
+        )}
+
+        {/* URL tab */}
+        {activeTab === 'url' && (
+          <div>
+            <form onSubmit={handleUrlSubmit}>
+              <input
+                type="text"
+                inputMode="url"
+                value={urlValue}
+                onChange={(e) => setUrlValue(e.target.value)}
+                placeholder="example.com/article"
+                className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-brand"
+              />
+              <button
+                type="submit"
+                disabled={!urlValue.trim() || urlLoading}
+                className="mt-2 w-full py-2 text-sm font-medium bg-brand hover:bg-brand-hover text-brand-on rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {urlLoading && (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                )}
+                {urlLoading ? 'Fetching…' : 'Fetch Page'}
+              </button>
+            </form>
+
+            {urlError && (
+              <p className="mt-2 text-xs text-bad-ink bg-bad-soft border border-bad-line rounded-lg px-3 py-2 break-url">
+                {urlError}
+              </p>
+            )}
+
+            <p className="mt-2 text-xs text-ink-3 leading-relaxed">
+              Fetches the page and extracts its readable text, dropping navigation and
+              scripts. HTML, PDF, Markdown, CSV, JSON and Office files all work.
+            </p>
+            {!import.meta.env.DEV && (
+              <p className="mt-2 text-xs text-warn-ink bg-warn-soft border border-warn-line rounded-lg px-3 py-2">
+                This is a production build with no CORS proxy, so most sites will refuse
+                the request. URL import works under <code className="font-mono">npm run dev</code>.
+              </p>
+            )}
           </div>
         )}
 
