@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Signing in…</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #f7f5f1;
+      color: #5f594f;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #171614; color: #aaa196; }
+    }
+    p { font-size: 14px; }
+  </style>
+</head>
+<body>
+  <p id="msg">Completing sign-in…</p>
+  <script>
+    // The OAuth provider redirects the popup here with ?code= and &state=.
+    // Hand both back to the opener and close; the opener does the token
+    // exchange, so no credential ever lives in this page.
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var payload = {
+        source: 'synthgen-oauth',
+        code: params.get('code'),
+        state: params.get('state'),
+        error: params.get('error'),
+        errorDescription: params.get('error_description'),
+      };
+
+      if (!window.opener) {
+        document.getElementById('msg').textContent =
+          'This page is part of the sign-in flow and cannot be opened directly.';
+        return;
+      }
+
+      // Target the exact origin that opened us — never '*', since the URL
+      // carries an authorization code.
+      window.opener.postMessage(payload, window.location.origin);
+      document.getElementById('msg').textContent =
+        payload.error ? 'Sign-in failed. You can close this window.' : 'Signed in. Closing…';
+      setTimeout(function () { window.close(); }, 400);
+    })();
+  </script>
+</body>
+</html>

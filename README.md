@@ -95,6 +95,39 @@ so you see what was skipped and what generating would cost before importing.
 
 ![Reviewing a crawl](docs/screenshots/10-crawl-review.png)
 
+#### Connecting Google Drive and OneDrive
+
+Both are connected from **Settings → Cloud sources**. Each deployment supplies
+its own OAuth client ID: client IDs are tied to the origin they run on, so one
+cannot ship with the app.
+
+![Connecting cloud accounts](docs/screenshots/11-cloud-accounts.png)
+
+| | Google Drive | OneDrive |
+|---|---|---|
+| Register at | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) | [Microsoft Entra ID](https://portal.azure.com) |
+| App type | Web application | Single-page application |
+| Also needs | Google Drive API enabled | — |
+| Scopes requested | `drive.readonly`, `openid`, `email` | `Files.Read`, `User.Read` |
+
+Add the redirect URI shown in the panel (`<your-origin>/oauth-callback.html`)
+to the app registration, paste the client ID, and click Connect.
+
+**How the sign-in works.** Authorization Code with PKCE, in a popup — no
+Google Identity Services or MSAL bundle, and no client secret, which a browser
+app could not keep anyway. The popup lands on a static callback page that
+posts the authorization code back to its opener at an exact origin and closes;
+the code is exchanged for a token by the app itself.
+
+- Tokens live in **`sessionStorage`** — never on disk, cleared when the tab closes
+- **No refresh token is requested** (no `offline_access`): a long-lived credential has nowhere safe to live in a browser
+- `state` is verified on return, and messages from any other origin or source are ignored
+- Expired tokens are purged on read, and a `401` clears the session and asks you to sign in again
+
+> Signing in gives the app read access to your Drive or OneDrive. Browsing and
+> importing from a connected account is the next phase — the connection itself
+> is what's implemented today.
+
 #### Supported formats
 
 | Category | Formats |
@@ -329,6 +362,7 @@ src/
 │   ├── GenerateButton.jsx         # Trigger, progress bars, cancel
 │   ├── PairCard.jsx               # Editable Q&A card with quality + duplicate badges
 │   ├── ThemeToggle.jsx            # Light / dark / system cycle
+│   ├── CloudAccounts.jsx          # Connect / disconnect cloud sources
 │   ├── IngestReview.jsx           # Selection + cost gate for bulk import
 │   ├── VirtualPairList.jsx        # Windowed list for large datasets
 │   ├── WorkspaceHeader.jsx        # Search, filters, bulk actions, export
@@ -337,6 +371,7 @@ src/
 ├── hooks/
 │   ├── useDocuments.js            # Document loading, parsing, restore
 │   ├── useGenerate.js             # Chunk orchestration, concurrency pool, retry
+│   ├── useCloudAuth.js            # Cloud connection state
 │   ├── useTheme.js                # Theme state, persistence, OS sync
 │   ├── useKeyboardShortcuts.js    # Global shortcut bindings
 │   └── useExport.js               # Schema conversion + serialization
@@ -354,7 +389,9 @@ src/
 │   └── index.js                   # Provider registry + factory
 ├── sources/
 │   ├── exclusions.js              # Secret / noise / unsupported filtering
+│   ├── cloudProviders.js          # Drive / OneDrive endpoints + client IDs
 │   ├── crawler.js                 # Same-origin crawl, robots.txt, dedupe
+│   ├── oauth.js                   # Authorization Code + PKCE popup flow
 │   ├── folderSource.js            # Recursive folder + drag-drop walking
 │   └── urlSource.js               # URL fetch → File, with URL validation
 └── utils/

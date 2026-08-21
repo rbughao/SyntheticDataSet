@@ -31,6 +31,7 @@ import IngestReview from './components/IngestReview.jsx'
 import { useDocuments } from './hooks/useDocuments.js'
 import { useGenerate } from './hooks/useGenerate.js'
 import { useTheme } from './hooks/useTheme.js'
+import { useCloudAuth } from './hooks/useCloudAuth.js'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js'
 import { exportBufferAs } from './hooks/useExport.js'
 import { PROVIDERS } from './providers/index.js'
@@ -145,6 +146,7 @@ export default function App() {
   const [showExportModal, setShowExportModal] = useState(false)
 
   const { mode: themeMode, cycle: cycleTheme } = useTheme()
+  const cloudAuth = useCloudAuth()
   const searchInputRef = useRef(null)
 
   // ── Bulk ingestion (folder) + single-page fetch (URL) ─────────────────────
@@ -496,7 +498,7 @@ export default function App() {
           crawlProgress={crawlProgress}
           onCancelCrawl={() => { crawlCancelRef.current.current = true }}
         />
-        <SettingsPanel settings={settings} onChange={updateSettings} />
+        <SettingsPanel settings={settings} onChange={updateSettings} cloudAuth={cloudAuth} />
 
         {documents.length > 0 && (
           <div className="px-4">

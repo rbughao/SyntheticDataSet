@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PROVIDERS } from '../providers/index.js'
 import { proxyFetch } from '../utils/corsProxy.js'
+import CloudAccounts from './CloudAccounts.jsx'
 
 // Connection / model-fetch status values
 const IDLE = 'idle'
@@ -93,7 +94,7 @@ async function fetchModelsForProvider(slug, { apiKey, baseURL, subProvider }) {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function SettingsPanel({ settings, onChange }) {
+export default function SettingsPanel({ settings, onChange, cloudAuth }) {
   const [showApiKey, setShowApiKey] = useState(false)
   const [connStatus, setConnStatus] = useState(IDLE)
   const [connError, setConnError] = useState('')
@@ -692,6 +693,23 @@ export default function SettingsPanel({ settings, onChange }) {
           className="w-full text-sm border border-line rounded-lg px-3 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand"
         />
       </div>
+
+      {/* Cloud accounts */}
+      {cloudAuth && (
+        <div>
+          <label className="block text-xs font-medium text-ink-3 mb-1.5">
+            Cloud sources{' '}
+            <span className="text-ink-3 font-normal">(optional)</span>
+          </label>
+          <CloudAccounts
+            clientIds={cloudAuth.clientIds}
+            connections={cloudAuth.connections}
+            onClientIdChange={cloudAuth.updateClientId}
+            onSignIn={cloudAuth.signIn}
+            onSignOut={cloudAuth.signOut}
+          />
+        </div>
+      )}
 
       {/* Parallel chunk requests */}
       <div>
