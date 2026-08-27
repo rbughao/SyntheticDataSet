@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { PROVIDERS } from '../providers/index.js'
 import { proxyFetch } from '../utils/corsProxy.js'
 import CloudAccounts from './CloudAccounts.jsx'
+import Disclosure from './Disclosure.jsx'
 
 // Connection / model-fetch status values
 const IDLE = 'idle'
@@ -9,8 +10,9 @@ const LOADING = 'loading'
 const OK = 'ok'
 const ERROR = 'error'
 
-// Remembers whether the provider block is expanded
+// Remember which Settings sections are expanded
 const PROVIDER_OPEN_KEY = 'synthgen_providerOpen'
+const CLOUD_OPEN_KEY = 'synthgen_cloudOpen'
 
 // ---------------------------------------------------------------------------
 // fetchModelsForProvider — unified model-listing across all providers
@@ -103,15 +105,6 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
   const [connError, setConnError] = useState('')
   const [discoveredModels, setDiscoveredModels] = useState([])
 
-  // Expanded by default — a first run has nothing configured yet — but the
-  // choice sticks, so anyone who collapses it keeps the space back.
-  const [providerOpen, setProviderOpen] = useState(() => {
-    try { return localStorage.getItem(PROVIDER_OPEN_KEY) !== 'false' } catch { return true }
-  })
-  useEffect(() => {
-    try { localStorage.setItem(PROVIDER_OPEN_KEY, String(providerOpen)) } catch { /* storage off */ }
-  }, [providerOpen])
-
   const providerMeta = PROVIDERS[settings.providerSlug] || {}
   const isOllama = settings.providerSlug === 'ollama'
   const isCustom = settings.providerSlug === 'custom'
@@ -133,6 +126,16 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
     providerMeta.label || settings.providerSlug,
     settings.model ? settings.model.split('/').pop() : null,
   ].filter(Boolean).join(' · ')
+
+  // Cloud header summary — how many accounts are actually connected
+  const connectedNames = cloudAuth
+    ? Object.entries(cloudAuth.connections)
+        .filter(([, c]) => c.status === 'connected')
+        .map(([id]) => (id === 'gdrive' ? 'Drive' : 'OneDrive'))
+    : []
+  const cloudSummary = connectedNames.length
+    ? `${connectedNames.join(', ')} connected`
+    : 'Not connected'
 
   // ── Reset connection state when provider or base URL changes ──────────────
   useEffect(() => {
@@ -316,34 +319,13 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
     <div className="p-4 space-y-5 border-t border-line">
       {/* Provider config collapses as one unit: it is set once and then rarely
           touched, unlike the generation controls below it. */}
-      <h2>
-        <button
-          type="button"
-          onClick={() => setProviderOpen((v) => !v)}
-          aria-expanded={providerOpen}
-          className="w-full flex items-center gap-2 text-left group"
-        >
-          <span className="text-sm font-semibold text-ink-2 uppercase tracking-wide flex-shrink-0">
-            Settings
-          </span>
-          {!providerOpen && (
-            <span className="text-xs text-ink-3 truncate min-w-0" title={collapsedSummary}>
-              {collapsedSummary}
-            </span>
-          )}
-          <span className="flex-1" />
-          <svg
-            className={`w-4 h-4 text-ink-3 group-hover:text-ink-2 transition-transform flex-shrink-0 ${
-              providerOpen ? 'rotate-180' : ''
-            }`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </h2>
-
-      {providerOpen && (
+      <Disclosure
+        storageKey={PROVIDER_OPEN_KEY}
+        defaultOpen
+        variant="heading"
+        title="Settings"
+        summary={collapsedSummary}
+      >
       <div className="space-y-5">
 
       {/* Provider selector */}
@@ -624,7 +606,7 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
       )}
 
       </div>
-      )}
+      </Disclosure>
 
       {/* Pair count */}
       <div>
@@ -746,13 +728,15 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
         />
       </div>
 
-      {/* Cloud accounts */}
+      {/* Cloud accounts — optional, and untouched once connected, so it starts
+          collapsed and shows connection status in the header instead. */}
       {cloudAuth && (
-        <div>
-          <label className="block text-xs font-medium text-ink-3 mb-1.5">
-            Cloud sources{' '}
-            <span className="text-ink-3 font-normal">(optional)</span>
-          </label>
+        <Disclosure
+          storageKey={CLOUD_OPEN_KEY}
+          defaultOpen={false}
+          title={<>Cloud sources <span className="font-normal">(optional)</span></>}
+          summary={cloudSummary}
+        >
           <CloudAccounts
             clientIds={cloudAuth.clientIds}
             connections={cloudAuth.connections}
@@ -760,7 +744,7 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
             onSignIn={cloudAuth.signIn}
             onSignOut={cloudAuth.signOut}
           />
-        </div>
+        </Disclosure>
       )}
 
       {/* Parallel chunk requests */}
