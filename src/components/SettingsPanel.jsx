@@ -9,6 +9,9 @@ const LOADING = 'loading'
 const OK = 'ok'
 const ERROR = 'error'
 
+// Remembers whether the provider block is expanded
+const PROVIDER_OPEN_KEY = 'synthgen_providerOpen'
+
 // ---------------------------------------------------------------------------
 // fetchModelsForProvider — unified model-listing across all providers
 // ---------------------------------------------------------------------------
@@ -100,6 +103,15 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
   const [connError, setConnError] = useState('')
   const [discoveredModels, setDiscoveredModels] = useState([])
 
+  // Expanded by default — a first run has nothing configured yet — but the
+  // choice sticks, so anyone who collapses it keeps the space back.
+  const [providerOpen, setProviderOpen] = useState(() => {
+    try { return localStorage.getItem(PROVIDER_OPEN_KEY) !== 'false' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(PROVIDER_OPEN_KEY, String(providerOpen)) } catch { /* storage off */ }
+  }, [providerOpen])
+
   const providerMeta = PROVIDERS[settings.providerSlug] || {}
   const isOllama = settings.providerSlug === 'ollama'
   const isCustom = settings.providerSlug === 'custom'
@@ -114,6 +126,13 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
   const canFetchModels = !isMock && !isAnthropic
   // Providers with a base URL input + connection test (Ollama, Custom)
   const showConnectionTest = isCustom || isOllama
+
+  // Shown beside the header when collapsed, so the active provider and model
+  // stay visible without expanding the section.
+  const collapsedSummary = [
+    providerMeta.label || settings.providerSlug,
+    settings.model ? settings.model.split('/').pop() : null,
+  ].filter(Boolean).join(' · ')
 
   // ── Reset connection state when provider or base URL changes ──────────────
   useEffect(() => {
@@ -295,7 +314,37 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
   // ==========================================================================
   return (
     <div className="p-4 space-y-5 border-t border-line">
-      <h2 className="text-sm font-semibold text-ink-2 uppercase tracking-wide">Settings</h2>
+      {/* Provider config collapses as one unit: it is set once and then rarely
+          touched, unlike the generation controls below it. */}
+      <h2>
+        <button
+          type="button"
+          onClick={() => setProviderOpen((v) => !v)}
+          aria-expanded={providerOpen}
+          className="w-full flex items-center gap-2 text-left group"
+        >
+          <span className="text-sm font-semibold text-ink-2 uppercase tracking-wide flex-shrink-0">
+            Settings
+          </span>
+          {!providerOpen && (
+            <span className="text-xs text-ink-3 truncate min-w-0" title={collapsedSummary}>
+              {collapsedSummary}
+            </span>
+          )}
+          <span className="flex-1" />
+          <svg
+            className={`w-4 h-4 text-ink-3 group-hover:text-ink-2 transition-transform flex-shrink-0 ${
+              providerOpen ? 'rotate-180' : ''
+            }`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </h2>
+
+      {providerOpen && (
+      <div className="space-y-5">
 
       {/* Provider selector */}
       <div>
@@ -572,6 +621,9 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
             </p>
           )}
         </div>
+      )}
+
+      </div>
       )}
 
       {/* Pair count */}
