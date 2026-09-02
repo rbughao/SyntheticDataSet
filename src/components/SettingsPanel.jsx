@@ -22,6 +22,32 @@ const CLOUD_OPEN_KEY = 'synthgen_cloudOpen'
  * Returns a sorted string array.
  * Throws with a human-readable message on failure.
  */
+/**
+ * Read a response body exactly once and classify it.
+ *
+ * A body is a stream: calling res.json() and then res.text() on the same
+ * response throws, which previously swallowed the detail of every non-JSON
+ * error. Reading text first and parsing it ourselves keeps both.
+ *
+ * `isHtml` matters because Vite's dev server answers any path it does not
+ * recognise with index.html and a 200, so a misrouted request looks like a
+ * successful reply until JSON parsing fails on "<!DOCTYPE".
+ */
+async function readBody(res) {
+  const text = await res.text().catch(() => '')
+  const isHtml = /^\s*<(?:!doctype|html)/i.test(text)
+  let json = null
+  if (!isHtml && text) {
+    try { json = JSON.parse(text) } catch { /* not JSON */ }
+  }
+  return { json, text, isHtml }
+}
+
+const HTML_RESPONSE_HINT =
+  'Got an HTML page instead of a JSON reply, which means the request never reached ' +
+  'your server. Reload the app — if the dev server restarted it may now be on a ' +
+  'different port, and the open tab is talking to the old one.'
+
 async function fetchModelsForProvider(slug, { apiKey, baseURL, subProvider }) {
   const authHeaders = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
 
@@ -70,26 +96,35 @@ async function fetchModelsForProvider(slug, { apiKey, baseURL, subProvider }) {
     const base = (baseURL || '').replace(/\/+$/, '')
     if (!base) throw new Error('Base URL is empty')
     const res = await proxyFetch(`${base}/models`, { headers: authHeaders })
+    const { json, text, isHtml } = await readBody(res)
+
+    if (isHtml) throw new Error(HTML_RESPONSE_HINT)
+
     if (!res.ok) {
-      // Try to parse structured proxy error (new JSON format) for a friendlier message
-      let friendlyMsg = `HTTP ${res.status}`
-      try {
-        const errBody = await res.json()
-        if (errBody?.code === 'ECONNREFUSED') {
-          friendlyMsg = slug === 'ollama'
-            ? 'Cannot connect — is Ollama running? Try: ollama serve'
-            : `Connection refused at ${base}. Is the server running?`
-        } else if (errBody?.message) {
-          friendlyMsg = errBody.message.slice(0, 160)
-        }
-      } catch {
-        const text = await res.text().catch(() => '')
-        if (text) friendlyMsg += `: ${text.slice(0, 120)}`
+      // The dev proxy reports transport failures as structured JSON
+      if (json?.code === 'ECONNREFUSED') {
+        throw new Error(slug === 'ollama'
+          ? 'Cannot connect — is Ollama running? Try: ollama serve'
+          : `Connection refused at ${base}. Is the server running?`)
       }
-      throw new Error(friendlyMsg)
+      // The server answered, but refused the request. Say which is which:
+      // an auth failure is about the key, not the address.
+      const detail = json?.error?.message || json?.message || json?.detail
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(
+          detail
+            ? `${res.status} — ${String(detail).slice(0, 140)}. Check the API Key field.`
+            : `${res.status} — the server rejected the API key. Check the API Key field.`
+        )
+      }
+      throw new Error(
+        detail ? `HTTP ${res.status}: ${String(detail).slice(0, 140)}`
+               : `HTTP ${res.status}${text ? `: ${text.slice(0, 120)}` : ''}`
+      )
     }
-    const data = await res.json()
-    const items = Array.isArray(data) ? data : (data.data ?? [])
+
+    if (!json) throw new Error('The server replied, but not with JSON.')
+    const items = Array.isArray(json) ? json : (json.data ?? [])
     return items.map((m) => (typeof m === 'string' ? m : m.id)).filter(Boolean).sort()
   }
 
