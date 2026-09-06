@@ -11,7 +11,8 @@
     "test:filetypes": "node scripts/test-file-types.mjs",
     "test:sources": "node scripts/test-sources.mjs",
     "test:crawl": "node scripts/test-crawl.mjs",
-    "test:cloud": "node scripts/test-cloud.mjs"
+    "test:cloud": "node scripts/test-cloud.mjs",
+    "test:personas": "node scripts/test-personas.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

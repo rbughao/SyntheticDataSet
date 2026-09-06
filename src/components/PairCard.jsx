@@ -97,6 +97,15 @@ export default function PairCard({
           {pair.type === 'instruction' ? 'Instruction' : 'Factual'}
         </span>
 
+        {pair.personaName && (
+          <span
+            className="text-xs font-medium px-2 py-0.5 rounded-full bg-brand-soft text-brand-ink"
+            title="Written from this point of view"
+          >
+            {pair.personaName}
+          </span>
+        )}
+
         {pair.edited && (
           <span className="text-xs text-warn-ink bg-warn-soft px-2 py-0.5 rounded-full">
             edited

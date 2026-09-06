@@ -1,4 +1,5 @@
 import { chunkDocument, CHUNK_SIZE, CHUNK_OVERLAP } from './chunker.js'
+import { resolvePersonas } from './personas.js'
 
 // ---------------------------------------------------------------------------
 // Model pricing table — USD per 1 million tokens
@@ -100,16 +101,22 @@ export function estimateRun(documents, settings) {
   const pairCountPerDoc = settings.pairCount || 10
   const concurrency = Math.max(1, settings.concurrency || 3)
 
+  // Each persona gets its own request per chunk, so they multiply the call
+  // count and re-send the chunk text — which the estimate has to show.
+  const voiceCount = Math.max(1, resolvePersonas(settings).length)
+
   let chunkCount = 0
   let inputChars = 0
 
   for (const doc of documents) {
     const raw = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP, doc.kind)
-    // useGenerate caps chunks at the requested pair count (1 pair minimum per chunk)
-    const used = raw.slice(0, Math.min(raw.length, pairCountPerDoc))
-    chunkCount += used.length
+    // Mirrors buildChunkSpecs: chunks are capped so every chunk × persona
+    // slot still gets at least one pair
+    const maxChunks = Math.max(1, Math.floor(pairCountPerDoc / voiceCount))
+    const used = raw.slice(0, Math.min(raw.length, maxChunks))
+    chunkCount += used.length * voiceCount
     for (const c of used) {
-      inputChars += c.text.length + PROMPT_OVERHEAD_CHARS
+      inputChars += (c.text.length + PROMPT_OVERHEAD_CHARS) * voiceCount
     }
   }
 

@@ -1,5 +1,42 @@
+import { describePersona } from './personas.js'
+
 const TEMPERATURE_MAP = { low: 0.3, balanced: 0.7, creative: 1.0 }
 const MAX_DOC_CHARS = 6000
+
+/**
+ * The persona instruction block.
+ *
+ * Steers both halves of the pair. Two rules earn their place:
+ *
+ *  - the answer must be written *for* the persona but must never name them.
+ *    Without that, outputs start "As a new employee, you should…", which is
+ *    an artefact of the generator rather than knowledge, and it poisons the
+ *    dataset.
+ *  - the persona changes what is asked, not what is true. It must not become
+ *    licence to invent facts the excerpt does not contain.
+ */
+function personaBlock(persona) {
+  if (!persona) return ''
+  return `
+${describePersona(persona)}
+
+Write every question the way this person would actually ask it — their
+vocabulary, their priorities, their blind spots. Someone new to a subject asks
+different questions than a specialist, and needs different things from the
+answer.
+
+Write every answer as the best possible response to this person: pitched at
+what they already know, addressing what they actually need, in a register that
+suits their situation.
+
+Two constraints:
+- Never name or address the persona in the text. Do not write "as a developer"
+  or "for your audit" — the reader is already that person. Write the answer,
+  not a note about who it is for.
+- The persona changes which questions are asked and how answers are framed. It
+  never changes the facts. Everything must still be grounded in the excerpt.
+`
+}
 
 const STYLE_DESCRIPTIONS = {
   factual:
@@ -21,7 +58,7 @@ const DIFFICULTY_GUIDANCE = {
  * pairsForChunk: how many pairs to request from this excerpt.
  * chunkIndex / totalChunks: position context included in the prompt.
  */
-export function buildChunkMessages(chunk, chunkIndex, totalChunks, pairsForChunk, settings) {
+export function buildChunkMessages(chunk, chunkIndex, totalChunks, pairsForChunk, settings, persona = null) {
   const { styles, difficulty, domainTag, temperatureHint } = settings
 
   const styleList = styles.map((s) => STYLE_DESCRIPTIONS[s]).join('\n  - ')
@@ -43,9 +80,12 @@ Quality requirements:
 - Every answer must be complete, specific, and grounded in this excerpt only. Do not hallucinate.
 - Never reference the source (avoid "According to the document…"). Write answers as standalone knowledge.
 - Vary question phrasing. Avoid starting every question with the same word.
-- The "type" field must be exactly "factual" or "instruction".`
+- The "type" field must be exactly "factual" or "instruction".
+${personaBlock(persona)}`
 
-  const userPrompt = `Generate exactly ${pairsForChunk} question-answer pairs from this document excerpt (part ${chunkIndex + 1} of ${totalChunks}).
+  const userPrompt = `Generate exactly ${pairsForChunk} question-answer pairs from this document excerpt (part ${chunkIndex + 1} of ${totalChunks}).${persona ? `
+
+Every pair must be written from the point of view of: ${persona.name}.` : ''}
 
 Style(s) to use:
   - ${styleList}
@@ -76,7 +116,7 @@ Remember: return ONLY the raw JSON array, nothing else.`
  * Returns { messages, temperature }.
  * The temperature float is returned separately for the caller to pass to complete().
  */
-export function buildMessages(document, settings) {
+export function buildMessages(document, settings, persona = null) {
   const { pairCount, styles, difficulty, domainTag, temperatureHint } = settings
 
   const styleList = styles.map((s) => STYLE_DESCRIPTIONS[s]).join('\n  - ')
@@ -98,7 +138,8 @@ Quality requirements:
 - Every answer must be complete, specific, and fully grounded in the document. Do not hallucinate.
 - Never reference the document itself (e.g., avoid "According to the document..."). Write answers as standalone knowledge.
 - Vary question phrasing. Avoid starting every question with the same word.
-- The "type" field must be exactly "factual" or "instruction".`
+- The "type" field must be exactly "factual" or "instruction".
+${personaBlock(persona)}`
 
   // Truncate document if too long
   let docText = document.text
@@ -108,7 +149,9 @@ Quality requirements:
     truncationNote = '\n\n[... document truncated for length ...]'
   }
 
-  const userPrompt = `Generate exactly ${pairCount} question-answer pairs from the document below.
+  const userPrompt = `Generate exactly ${pairCount} question-answer pairs from the document below.${persona ? `
+
+Every pair must be written from the point of view of: ${persona.name}.` : ''}
 
 Style(s) to use:
   - ${styleList}

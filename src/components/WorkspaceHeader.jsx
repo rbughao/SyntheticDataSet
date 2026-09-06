@@ -16,6 +16,9 @@ export default function WorkspaceHeader({
   onFilterChange,
   onFilterTypeChange,
   onSearchChange,
+  filterPersona = 'all',
+  onFilterPersonaChange,
+  personas = [],
   onExport,
   isLargeOutputMode = false,
   isGenerating = false,
@@ -119,6 +122,21 @@ export default function WorkspaceHeader({
             <option value="factual">Factual</option>
             <option value="instruction">Instruction</option>
           </select>
+
+          {/* Persona filter — only when a run actually used personas */}
+          {personas.length > 0 && (
+            <select
+              value={filterPersona}
+              onChange={(e) => onFilterPersonaChange(e.target.value)}
+              className="text-[13px] bg-surface-3 rounded-full px-3.5 py-2 text-ink-2 focus:outline-none focus:ring-2 focus:ring-brand flex-shrink-0 cursor-pointer"
+            >
+              <option value="all">All personas</option>
+              {personas.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+              <option value="none">No persona</option>
+            </select>
+          )}
 
           {/* Rating / status filter */}
           <select

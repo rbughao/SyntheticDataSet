@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { buildMessages, buildChunkMessages } from '../utils/promptBuilder.js'
 import { chunkDocument, CHUNK_SIZE, CHUNK_OVERLAP } from '../utils/chunker.js'
+import { resolvePersonas } from '../utils/personas.js'
 import { parseResponse, ParseError } from '../utils/parser.js'
 import { createProvider } from '../providers/index.js'
 
@@ -114,24 +115,44 @@ const MAX_CONTEXT_RETRIES = 3
  */
 function buildChunkSpecs(documents, settings) {
   const specs = []
+  // No persona selected keeps the original neutral behaviour
+  const personas = resolvePersonas(settings)
+  const voices = personas.length ? personas : [null]
+
   for (const doc of documents) {
     const rawChunks = chunkDocument(doc.text, CHUNK_SIZE, CHUNK_OVERLAP, doc.kind)
     const totalPairs = settings.pairCount
-    // Never request more chunks than pairs — each chunk yields at least one pair
-    const chunks = rawChunks.slice(0, Math.min(rawChunks.length, totalPairs))
-    const n = chunks.length
-    const basePairs = Math.floor(totalPairs / n)
-    const extraPairs = totalPairs % n
 
+    // One request per chunk *per persona*. Asking a single call to juggle
+    // several points of view blurs them together, and the resulting pairs
+    // could not be attributed afterwards. Separate calls stay in character.
+    //
+    // Chunks are capped so every chunk × persona slot still gets at least one
+    // pair — otherwise three personas over a 30-chunk document would ask for
+    // fractions of a pair each.
+    const maxChunks = Math.max(1, Math.floor(totalPairs / voices.length))
+    const chunks = rawChunks.slice(0, Math.min(rawChunks.length, maxChunks))
+
+    const slots = chunks.length * voices.length
+    const basePairs = Math.floor(totalPairs / slots)
+    const extraPairs = totalPairs % slots
+
+    let slot = 0
     chunks.forEach((chunk, i) => {
-      specs.push({
-        docId: doc.id,
-        docName: doc.name,
-        chunk,
-        chunkIndex: i,
-        totalChunks: n,
-        pairsToRequest: basePairs + (i < extraPairs ? 1 : 0),
-      })
+      for (const persona of voices) {
+        const pairsToRequest = basePairs + (slot < extraPairs ? 1 : 0)
+        slot++
+        if (pairsToRequest <= 0) continue
+        specs.push({
+          docId: doc.id,
+          docName: doc.name,
+          chunk,
+          chunkIndex: i,
+          totalChunks: chunks.length,
+          pairsToRequest,
+          persona,
+        })
+      }
     })
   }
   return specs
@@ -154,14 +175,18 @@ function makeChunkTask(spec, provider, settings) {
       try {
         const chunkForPrompt = { ...chunk, text: chunkText }
         const { messages, temperature } = buildChunkMessages(
-          chunkForPrompt, i, n, pairsToRequest, settings
+          chunkForPrompt, i, n, pairsToRequest, settings, spec.persona
         )
         const responseText = await provider.complete(messages, {
           model: settings.model,
           temperature,
           maxTokens: calcMaxTokens(pairsToRequest),
         })
-        return toPairs(parseResponse(responseText))
+        return toPairs(parseResponse(responseText)).map((pair) => ({
+          ...pair,
+          personaId: spec.persona?.id ?? null,
+          personaName: spec.persona?.name ?? null,
+        }))
       } catch (err) {
         const hitContextLimit = isContextError(err)
         const canShrink = chunkText.length > 500 && attempt < MAX_CONTEXT_RETRIES
@@ -436,7 +461,13 @@ export function useGenerate() {
 
     const chunks = chunkDocument(document.text, CHUNK_SIZE, CHUNK_OVERLAP, document.kind)
     const docForPrompt = { ...document, text: chunks[0].text }
-    const { messages, temperature } = buildMessages(docForPrompt, targetSettings)
+    // Regenerating a pair keeps its point of view — otherwise a persona pair
+    // silently becomes a neutral one on refresh.
+    const persona = resolvePersonas({
+      personaIds: pair.personaId ? [pair.personaId] : [],
+      customPersona: settings.customPersona,
+    })[0] || null
+    const { messages, temperature } = buildMessages(docForPrompt, targetSettings, persona)
 
     const provider = providerFrom(settings)
 
@@ -455,6 +486,8 @@ export function useGenerate() {
       rating: null,
       edited: false,
       sourceDocId: pair.sourceDocId,
+      personaId: pair.personaId ?? null,
+      personaName: pair.personaName ?? null,
     })
   }, [])
 

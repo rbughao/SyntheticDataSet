@@ -179,8 +179,50 @@ If a file parses but yields no usable text — most often a **scanned PDF with n
 - **Style** — Factual Q&A, Instruction-following, or both
 - **Difficulty** — Basic, Intermediate, Advanced
 - **Temperature** — Low (0.3), Balanced (0.7), Creative (1.0)
+- **Audience persona** — write from one or more points of view (see below)
 - **Domain tag** — optional label (e.g. `medical`, `legal`) injected into the prompt
 - **Parallel requests** — 1 to 10 concurrent API calls, shared across all files
+
+### Audience personas
+
+The same document answers very different questions depending on who is asking.
+A newcomer wants to know what something *is*; an auditor wants to know who
+signed it off. Without a persona you get neutral, encyclopedic pairs — good for
+coverage, weak for training a model that has to serve a particular audience.
+
+Pick one or more personas and the dataset is written from their point of view —
+both halves of the pair. The persona changes which questions get asked *and* how
+the answers are pitched.
+
+| Persona | Asks about |
+|---|---|
+| **Newcomer** | What things are, why they exist, what the terms mean |
+| **Practitioner** | Exact values, correct procedure, what to do in a given case |
+| **Expert** | Edge cases, trade-offs, why one approach was chosen |
+| **Decision maker** | Cost, risk, timing, what happens if we do nothing |
+| **Support agent** | Symptoms, fixes, what to tell the customer, when to escalate |
+| **Developer** | How to call it, what the error means, expected response shape |
+| **Auditor** | The rule, who is responsible, exceptions, how it is evidenced |
+| **Skeptic** | Evidence, limitations, what is left unsaid, when it fails |
+
+Or write your own in free text — "a district nurse visiting patients at home,
+working from a phone between appointments".
+
+![Generating with three personas](docs/screenshots/12-personas.png)
+
+Selecting several splits the pair budget across them, and each gets its own
+request per chunk so the voices stay distinct instead of blurring into an
+average. Pairs are badged with their persona and can be filtered by it.
+
+> Two guardrails are built into the prompt. Answers are written *for* the
+> persona but never name them — without that, outputs start "As a developer,
+> you should…", which is an artefact of the generator rather than knowledge.
+> And the persona changes framing only, never the facts: everything stays
+> grounded in the source text.
+
+> More personas means more requests — three personas is three times the calls,
+> since each chunk is sent once per point of view. The estimate panel accounts
+> for this, so check it before a large run.
 
 ### Cost and time estimate before you commit
 
@@ -396,6 +438,7 @@ src/
 │   ├── PreflightEstimate.jsx      # Cost / token / duration estimate
 │   ├── GenerateButton.jsx         # Trigger, progress bars, cancel
 │   ├── PairCard.jsx               # Editable Q&A card with quality + duplicate badges
+│   ├── PersonaPicker.jsx          # Choose whose point of view to write from
 │   ├── ThemeToggle.jsx            # Light / dark / system cycle
 │   ├── CloudAccounts.jsx          # Connect / disconnect cloud sources
 │   ├── CloudBrowser.jsx           # Pick a folder from a connected account
@@ -434,6 +477,7 @@ src/
 │   └── urlSource.js               # URL fetch → File, with URL validation
 └── utils/
     ├── chunker.js                 # Semantic-boundary document splitter
+    ├── personas.js                # Preset points of view + prompt fragment
     ├── promptBuilder.js           # System + user prompt construction
     ├── parser.js                  # 4-strategy JSON extraction from LLM output
     ├── fileReader.js              # PDF / DOCX / TXT / MD parsing
@@ -484,6 +528,7 @@ npm run test:filetypes
 npm run test:sources
 npm run test:crawl
 npm run test:cloud
+npm run test:personas
 ```
 
 | Suite | Checks | Covers |
@@ -492,12 +537,14 @@ npm run test:cloud
 | `test:sources` | 46 | Folder and URL import, plus every exclusion rule |
 | `test:crawl` | 33 | A local fixture site built to break naive crawlers |
 | `test:cloud` | 36 | Drive and OneDrive adapters against a stubbed API |
+| `test:personas` | 25 | Persona resolution, prompt injection, cost multiplier, tagging |
 
 Each suite targets the cases that actually bite:
 
 - **`test:filetypes`** — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
 - **`test:sources`** — every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing: `ftp://` is rejected rather than coerced, `host:port` is not mistaken for a scheme, and credentials in a URL are refused.
 - **`test:crawl`** — starts a local fixture site containing a cycle, an off-origin link, a `robots.txt` `Disallow`, a `noindex` page, tracking params disguising one page as many, and a non-HTML file, then runs the real crawler against it.
+- **`test:personas`** — checks that pairs actually split across the selected personas, that the point of view reaches the prompt (including the two guardrails), that the estimate multiplies requests correctly, and that generated pairs carry their persona through to the badge and filter.
 - **`test:cloud`** — stubs `fetch` with a fake Drive and Graph API, so it tests this app's logic (pagination, recursion, native-format export, download routing, exclusions on cloud items) rather than the providers'.
 
 **Not automated:** the OAuth consent flow. It needs a real client ID and account, so everything up to and including the token request is tested, but a live sign-in is not.

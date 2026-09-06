@@ -88,6 +88,8 @@ function makeDefaultSettings() {
     subProvider: meta.defaultSubProvider || '',
     pairCount: 10,
     styles: ['factual'],
+    personaIds: [],
+    customPersona: '',
     difficulty: 'intermediate',
     domainTag: '',
     temperatureHint: 'balanced',
@@ -145,6 +147,7 @@ export default function App() {
   const [filterRating, setFilterRating] = useState('all')
   const [filterType, setFilterType] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [filterPersona, setFilterPersona] = useState('all')
   const [settings, setSettings] = useState(makeDefaultSettings)
   const [showExportModal, setShowExportModal] = useState(false)
 
@@ -533,6 +536,7 @@ export default function App() {
     const q = searchQuery.trim().toLowerCase()
     return pairs.filter((p) => {
       if (filterType !== 'all' && p.type !== filterType) return false
+      if (filterPersona !== 'all' && (p.personaId ?? 'none') !== filterPersona) return false
 
       switch (filterRating) {
         case 'up': if (p.rating !== 'up') return false; break
@@ -550,7 +554,7 @@ export default function App() {
       }
       return true
     })
-  }, [pairs, filterType, filterRating, searchQuery, quality, duplicates])
+  }, [pairs, filterType, filterRating, filterPersona, searchQuery, quality, duplicates])
 
   function selectAll() {
     setSelectedIds(new Set(filteredPairs.map((p) => p.id)))
@@ -559,6 +563,15 @@ export default function App() {
   function deselectAll() {
     setSelectedIds(new Set())
   }
+
+  // Only offer a persona filter for personas actually present in the results
+  const personasInResults = useMemo(() => {
+    const seen = new Map()
+    for (const p of pairs) {
+      if (p.personaId) seen.set(p.personaId, p.personaName || p.personaId)
+    }
+    return [...seen].map(([id, name]) => ({ id, name }))
+  }, [pairs])
 
   const useVirtual = filteredPairs.length > VIRTUALIZE_THRESHOLD
   const duplicateCount = duplicates.duplicateIds.size
@@ -644,6 +657,9 @@ export default function App() {
           onFilterChange={setFilterRating}
           onFilterTypeChange={setFilterType}
           onSearchChange={setSearchQuery}
+          filterPersona={filterPersona}
+          onFilterPersonaChange={setFilterPersona}
+          personas={personasInResults}
           onExport={() => setShowExportModal(true)}
           isLargeOutputMode={isLargeOutputMode}
           isGenerating={isLoading}
@@ -958,7 +974,7 @@ export default function App() {
                   {pairs.length.toLocaleString()} pairs exist, but none match the current filters.
                 </p>
                 <button
-                  onClick={() => { setSearchQuery(''); setFilterRating('all'); setFilterType('all') }}
+                  onClick={() => { setSearchQuery(''); setFilterRating('all'); setFilterType('all'); setFilterPersona('all') }}
                   className="px-4 py-2 text-sm font-medium bg-brand hover:bg-brand-hover text-brand-on rounded-full transition-colors shadow-sm"
                 >
                   Clear filters
