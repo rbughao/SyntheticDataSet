@@ -27,6 +27,8 @@ import PreflightEstimate from './components/PreflightEstimate.jsx'
 import VirtualPairList, { VIRTUALIZE_THRESHOLD } from './components/VirtualPairList.jsx'
 import ThemeToggle from './components/ThemeToggle.jsx'
 import IngestReview from './components/IngestReview.jsx'
+import SidebarNav from './components/SidebarNav.jsx'
+import PersonasView from './components/PersonasView.jsx'
 
 import { useDocuments } from './hooks/useDocuments.js'
 import { useGenerate } from './hooks/useGenerate.js'
@@ -40,6 +42,7 @@ import { crawlSite, SKIP_LABEL } from './sources/crawler.js'
 import { partition } from './sources/exclusions.js'
 import * as gdrive from './sources/googleDriveSource.js'
 import * as onedrive from './sources/oneDriveSource.js'
+import { loadPersonas } from './utils/personas.js'
 import { findDuplicates } from './utils/dedup.js'
 import { validateAll } from './utils/quality.js'
 import {
@@ -150,6 +153,10 @@ export default function App() {
   const [filterPersona, setFilterPersona] = useState('all')
   const [settings, setSettings] = useState(makeDefaultSettings)
   const [showExportModal, setShowExportModal] = useState(false)
+
+  // Sidebar view: 'sources' | 'personas' | 'settings'
+  const [sidebarView, setSidebarView] = useState('sources')
+  const [personas, setPersonas] = useState(loadPersonas)
 
   const { mode: themeMode, cycle: cycleTheme } = useTheme()
   const cloudAuth = useCloudAuth()
@@ -590,8 +597,30 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden flex-col md:flex-row bg-canvas">
-      {/* ── Left sidebar ── */}
-      <div className="w-full md:w-[21rem] md:flex-shrink-0 flex flex-col bg-surface-2 border-r border-line overflow-y-auto md:h-screen scrollbar-thin">
+      {/* ── Left sidebar ──
+          Three views rather than one long scroll. The estimate and Generate
+          button stay pinned below, so the primary action is reachable from
+          whichever view you are in. */}
+      <div className="w-full md:w-[21rem] md:flex-shrink-0 flex flex-col bg-surface-2 border-r border-line md:h-screen">
+
+        {/* Header + nav */}
+        <div className="flex-shrink-0 pt-4">
+          <div className="px-5 pb-3">
+            <h1 className="font-display text-[17px] font-semibold text-ink leading-tight">
+              Synthetic Dataset Generator
+            </h1>
+            <p className="text-xs text-ink-3 mt-0.5">by Bughao Lab</p>
+          </div>
+          <SidebarNav
+            view={sidebarView}
+            onChange={setSidebarView}
+            badge={(settings.personaIds || []).length}
+          />
+        </div>
+
+        {/* Active view */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin border-t border-line">
+          {sidebarView === 'sources' && (
         <DocumentPanel
           documents={documents}
           activeDocumentId={activeDocumentId}
@@ -616,23 +645,40 @@ export default function App() {
           onCloudImport={handleCloudImport}
           onCancelCloud={() => { cloudCancelRef.current.current = true }}
         />
-        <SettingsPanel settings={settings} onChange={updateSettings} cloudAuth={cloudAuth} />
+          )}
 
-        {documents.length > 0 && (
-          <div className="px-4">
-            <PreflightEstimate documents={documents} settings={settings} />
-          </div>
-        )}
+          {sidebarView === 'personas' && (
+            <PersonasView
+              personas={personas}
+              settings={settings}
+              onChange={updateSettings}
+              onPersonasChanged={setPersonas}
+            />
+          )}
 
-        <GenerateButton
-          isLoading={isLoading}
-          disabled={documents.length === 0}
-          onClick={handleGenerate}
-          onCancel={cancelGeneration}
-          progress={progress}
-          documentCount={documents.length}
-          largeOutputCount={isLargeOutputMode && isLoading ? largeOutputCount : undefined}
-        />
+          {sidebarView === 'settings' && (
+            <SettingsPanel settings={settings} onChange={updateSettings} cloudAuth={cloudAuth} />
+          )}
+        </div>
+
+        {/* Pinned footer — the primary action, from any view */}
+        <div className="flex-shrink-0 border-t border-line bg-surface-2">
+          {documents.length > 0 && (
+            <div className="px-5 pt-3">
+              <PreflightEstimate documents={documents} settings={settings} />
+            </div>
+          )}
+
+          <GenerateButton
+            isLoading={isLoading}
+            disabled={documents.length === 0}
+            onClick={handleGenerate}
+            onCancel={cancelGeneration}
+            progress={progress}
+            documentCount={documents.length}
+            largeOutputCount={isLargeOutputMode && isLoading ? largeOutputCount : undefined}
+          />
+        </div>
       </div>
 
       {/* ── Right workspace ── */}

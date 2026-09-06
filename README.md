@@ -205,10 +205,12 @@ the answers are pitched.
 | **Auditor** | The rule, who is responsible, exceptions, how it is evidenced |
 | **Skeptic** | Evidence, limitations, what is left unsaid, when it fails |
 
-Or write your own in free text — "a district nurse visiting patients at home,
-working from a phone between appointments".
+**Every persona is editable, and you can add your own.** Presets can be
+rewritten in place — edits are stored as an override, so Reset always restores
+the shipped version rather than losing it. There is also a one-off free-text
+persona for a point of view you do not want to save.
 
-![Generating with three personas](docs/screenshots/12-personas.png)
+![The Personas view](docs/screenshots/13-personas-view.png)
 
 Selecting several splits the pair budget across them, and each gets its own
 request per chunk so the voices stay distinct instead of blurring into an
@@ -231,6 +233,10 @@ Every run shows what it will cost and how long it will take *before* you click G
 ![Pre-flight estimate](docs/screenshots/02-preflight-estimate.png)
 
 ### Interface
+
+The sidebar is split into three views — **Sources**, **Personas** and
+**Settings** — rather than one long scroll. The cost estimate and the Generate
+button stay pinned below all three, so the primary action is always reachable.
 
 The UI is built on a semantic design-token system — every colour is a CSS variable, so light and dark are two sets of values rather than two sets of class names.
 
@@ -438,7 +444,8 @@ src/
 │   ├── PreflightEstimate.jsx      # Cost / token / duration estimate
 │   ├── GenerateButton.jsx         # Trigger, progress bars, cancel
 │   ├── PairCard.jsx               # Editable Q&A card with quality + duplicate badges
-│   ├── PersonaPicker.jsx          # Choose whose point of view to write from
+│   ├── PersonasView.jsx           # Persona library: select, create, edit
+│   ├── SidebarNav.jsx             # Sources / Personas / Settings views
 │   ├── ThemeToggle.jsx            # Light / dark / system cycle
 │   ├── CloudAccounts.jsx          # Connect / disconnect cloud sources
 │   ├── CloudBrowser.jsx           # Pick a folder from a connected account
@@ -537,14 +544,14 @@ npm run test:personas
 | `test:sources` | 46 | Folder and URL import, plus every exclusion rule |
 | `test:crawl` | 33 | A local fixture site built to break naive crawlers |
 | `test:cloud` | 36 | Drive and OneDrive adapters against a stubbed API |
-| `test:personas` | 25 | Persona resolution, prompt injection, cost multiplier, tagging |
+| `test:personas` | 35 | Persona resolution, prompt injection, cost multiplier, tagging |
 
 Each suite targets the cases that actually bite:
 
 - **`test:filetypes`** — HTML noise stripping, CSV column labelling, EPUB spine ordering (the fixture's spine deliberately contradicts filename order), PPTX numeric slide ordering, plus the empty-extraction and unsupported-type guards.
 - **`test:sources`** — every exclusion rule against synthetic paths, a folder selection driven through the real React handler, and a live URL fetch through the proxy. It also pins URL parsing: `ftp://` is rejected rather than coerced, `host:port` is not mistaken for a scheme, and credentials in a URL are refused.
 - **`test:crawl`** — starts a local fixture site containing a cycle, an off-origin link, a `robots.txt` `Disallow`, a `noindex` page, tracking params disguising one page as many, and a non-HTML file, then runs the real crawler against it.
-- **`test:personas`** — checks that pairs actually split across the selected personas, that the point of view reaches the prompt (including the two guardrails), that the estimate multiplies requests correctly, and that generated pairs carry their persona through to the badge and filter.
+- **`test:personas`** — checks that editing a preset stores an override without mutating the shipped default and that generation picks the edit up, that pairs actually split across the selected personas, that the point of view reaches the prompt (including the two guardrails), that the estimate multiplies requests correctly, and that generated pairs carry their persona through to the badge and filter.
 - **`test:cloud`** — stubs `fetch` with a fake Drive and Graph API, so it tests this app's logic (pagination, recursion, native-format export, download routing, exclusions on cloud items) rather than the providers'.
 
 **Not automated:** the OAuth consent flow. It needs a real client ID and account, so everything up to and including the token request is tested, but a live sign-in is not.

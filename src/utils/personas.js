@@ -111,6 +111,113 @@ export const PERSONA_BY_ID = Object.fromEntries(PRESET_PERSONAS.map((p) => [p.id
 /** Marker id for the user's own free-text persona. */
 export const CUSTOM_PERSONA_ID = 'custom'
 
+// ---------------------------------------------------------------------------
+// Storage
+//
+// Personas are read from outside React (the generator and the cost estimator
+// both need them), so localStorage is the source of truth rather than
+// component state. Presets are never mutated — an edited preset is stored as
+// an override, so "reset" is just deleting the override.
+// ---------------------------------------------------------------------------
+
+const STORE_KEY = 'synthgen_personas'
+
+/** The fields an editable persona carries. */
+export const PERSONA_FIELDS = [
+  { key: 'name', label: 'Name', placeholder: 'District nurse', short: true },
+  { key: 'summary', label: 'One-line summary', placeholder: 'Visiting patients, working from a phone', short: true },
+  { key: 'role', label: 'Who they are', placeholder: 'a community nurse visiting patients at home' },
+  { key: 'goal', label: 'What they want', placeholder: 'confirm the correct dosage and move on to the next visit' },
+  { key: 'context', label: 'Their situation', placeholder: 'between appointments, on a phone, often with poor signal' },
+  { key: 'expertise', label: 'What they already know', placeholder: 'clinically trained, but not a specialist in this drug' },
+  { key: 'asks', label: 'The kind of thing they ask', placeholder: 'dosage, contraindications, what to do if a dose is missed' },
+]
+
+function readStore() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return {
+      overrides: parsed?.overrides || {},
+      custom: Array.isArray(parsed?.custom) ? parsed.custom : [],
+    }
+  } catch {
+    return { overrides: {}, custom: [] }
+  }
+}
+
+function writeStore(store) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(store)) } catch { /* storage off */ }
+}
+
+/**
+ * Every persona available to the app: presets with any edits applied, followed
+ * by the user's own.
+ */
+export function loadPersonas() {
+  const { overrides, custom } = readStore()
+  const presets = PRESET_PERSONAS.map((p) =>
+    overrides[p.id] ? { ...p, ...overrides[p.id], isPreset: true, isEdited: true } : { ...p, isPreset: true }
+  )
+  return [...presets, ...custom.map((c) => ({ ...c, isPreset: false }))]
+}
+
+export function getPersona(id) {
+  return loadPersonas().find((p) => p.id === id) || null
+}
+
+/** Create or update a persona. Editing a preset stores an override. */
+export function savePersona(persona) {
+  const store = readStore()
+  const isPreset = PERSONA_BY_ID[persona.id] !== undefined
+
+  if (isPreset) {
+    // Keep only the fields that actually differ from the shipped preset, so a
+    // future change to the default still shows through where untouched.
+    const base = PERSONA_BY_ID[persona.id]
+    const diff = {}
+    for (const { key } of PERSONA_FIELDS) {
+      if (persona[key] !== undefined && persona[key] !== base[key]) diff[key] = persona[key]
+    }
+    if (Object.keys(diff).length) store.overrides[persona.id] = diff
+    else delete store.overrides[persona.id]
+  } else {
+    const idx = store.custom.findIndex((c) => c.id === persona.id)
+    if (idx >= 0) store.custom[idx] = persona
+    else store.custom.push(persona)
+  }
+
+  writeStore(store)
+  return loadPersonas()
+}
+
+/** Remove a custom persona, or drop the edits from a preset. */
+export function deletePersona(id) {
+  const store = readStore()
+  if (PERSONA_BY_ID[id]) delete store.overrides[id]
+  else store.custom = store.custom.filter((c) => c.id !== id)
+  writeStore(store)
+  return loadPersonas()
+}
+
+export function isPresetEdited(id) {
+  return !!readStore().overrides[id]
+}
+
+/** A blank persona ready for the editor. */
+export function newPersona() {
+  return {
+    id: `p_${crypto.randomUUID().slice(0, 8)}`,
+    name: '',
+    summary: '',
+    role: '',
+    goal: '',
+    context: '',
+    expertise: '',
+    asks: '',
+  }
+}
+
 /**
  * Turn the persona settings into the list actually used for a run.
  *
@@ -122,24 +229,30 @@ export const CUSTOM_PERSONA_ID = 'custom'
  */
 export function resolvePersonas(settings) {
   const ids = settings?.personaIds || []
-  const out = []
+  if (!ids.length) return []
 
+  // Read the stored library so edits and user-created personas are honoured,
+  // not just the shipped presets.
+  const library = loadPersonas()
+  const byId = Object.fromEntries(library.map((p) => [p.id, p]))
+
+  const out = []
   for (const id of ids) {
     if (id === CUSTOM_PERSONA_ID) continue
-    const preset = PERSONA_BY_ID[id]
-    if (preset) out.push(preset)
+    const persona = byId[id]
+    if (persona) out.push(persona)
   }
 
-  const custom = (settings?.customPersona || '').trim()
-  if (ids.includes(CUSTOM_PERSONA_ID) && custom) {
+  const quick = (settings?.customPersona || '').trim()
+  if (ids.includes(CUSTOM_PERSONA_ID) && quick) {
     out.push({
       id: CUSTOM_PERSONA_ID,
       name: 'Custom',
-      summary: custom.slice(0, 60),
+      summary: quick.slice(0, 60),
       // A free-text persona goes in whole: the user described the point of
       // view in their own words, and splitting it into fields would only
       // guess at which sentence meant what.
-      freeText: custom,
+      freeText: quick,
     })
   }
 

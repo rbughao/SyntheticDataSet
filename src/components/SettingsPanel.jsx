@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { PROVIDERS } from '../providers/index.js'
 import { proxyFetch } from '../utils/corsProxy.js'
 import CloudAccounts from './CloudAccounts.jsx'
-import PersonaPicker from './PersonaPicker.jsx'
 import Disclosure from './Disclosure.jsx'
 
 // Connection / model-fetch status values
@@ -352,7 +351,7 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
   // Render
   // ==========================================================================
   return (
-    <div className="p-4 space-y-5 border-t border-line">
+    <div className="px-5 py-4 space-y-5">
       {/* Provider config collapses as one unit: it is set once and then rarely
           touched, unlike the generation controls below it. */}
       <Disclosure
@@ -703,13 +702,6 @@ export default function SettingsPanel({ settings, onChange, cloudAuth }) {
           })}
         </div>
       </div>
-
-      {/* Audience persona */}
-      <PersonaPicker
-        personaIds={settings.personaIds}
-        customPersona={settings.customPersona}
-        onChange={onChange}
-      />
 
       {/* Difficulty */}
       <div>

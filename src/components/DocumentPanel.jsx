@@ -143,14 +143,8 @@ export default function DocumentPanel({
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <div className="px-5 pt-5 pb-3">
-        <h1 className="font-display text-[17px] font-semibold text-ink leading-tight">Synthetic Dataset Generator</h1>
-        <p className="text-xs text-ink-3 mt-0.5">by Bughao Lab</p>
-      </div>
-
       {/* Tabs */}
-      <div className="flex border-b border-line px-5">
+      <div className="flex border-b border-line px-5 pt-1">
         {['upload', 'folder', 'cloud', 'url', 'paste'].map((tab) => (
           <button
             key={tab}

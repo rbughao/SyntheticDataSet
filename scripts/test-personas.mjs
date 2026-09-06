@@ -108,6 +108,50 @@ async function main() {
   check('"Generate exactly N" phrasing survives', prompts.countPhraseIntact)
   check('excerpt still included', prompts.excerptPresent)
 
+  // ── Editing the persona library ──────────────────────────────────────────
+  console.log('\nPersona library is editable')
+  const lib = await p.evaluate(async () => {
+    const m = await import('/src/utils/personas.js')
+    localStorage.removeItem('synthgen_personas')
+
+    const shipped = m.loadPersonas().length
+
+    // Edit a preset — stored as an override, never mutating the shipped one
+    m.savePersona({ ...m.PERSONA_BY_ID.newcomer, goal: 'ship something by Friday' })
+    const edited = m.getPersona('newcomer')
+    const stillShipped = m.PRESET_PERSONAS.find((x) => x.id === 'newcomer').goal
+
+    // A resolved persona must reflect the edit, not the default
+    const resolvedEdited = m.resolvePersonas({ personaIds: ['newcomer'] })[0].goal
+
+    // Reset drops the override
+    m.deletePersona('newcomer')
+    const afterReset = m.getPersona('newcomer').goal
+
+    // Create, resolve, and delete a custom persona
+    const made = { ...m.newPersona(), name: 'Night nurse', summary: 'On a phone', role: 'a night-shift nurse', goal: 'confirm dosage', context: 'between rounds', expertise: 'clinically trained', asks: 'dosage and interactions' }
+    m.savePersona(made)
+    const withCustom = m.loadPersonas().length
+    const resolvedCustom = m.resolvePersonas({ personaIds: [made.id] })[0]
+    m.deletePersona(made.id)
+    const afterDelete = m.loadPersonas().length
+
+    return {
+      shipped, stillShipped, editedGoal: edited.goal, editedFlag: edited.isEdited,
+      resolvedEdited, afterReset, withCustom, afterDelete,
+      resolvedCustomRole: resolvedCustom?.role,
+    }
+  })
+
+  check('editing a preset stores an override', lib.editedGoal === 'ship something by Friday')
+  check('the shipped preset is not mutated', lib.stillShipped !== 'ship something by Friday')
+  check('edited presets are flagged', lib.editedFlag === true)
+  check('generation uses the edited text', lib.resolvedEdited === 'ship something by Friday')
+  check('reset restores the default', lib.afterReset !== 'ship something by Friday')
+  check('a custom persona is added', lib.withCustom === lib.shipped + 1)
+  check('a custom persona resolves for generation', lib.resolvedCustomRole === 'a night-shift nurse')
+  check('a custom persona can be deleted', lib.afterDelete === lib.shipped)
+
   // ── Cost estimate ────────────────────────────────────────────────────────
   console.log('\nEstimate accounts for personas')
   const est = await p.evaluate(async (base) => {
@@ -165,36 +209,69 @@ async function main() {
     await sleep(350)
   }
 
+  // Provider lives on the Settings view
+  await p.evaluate(() => {
+    const b = [...document.querySelectorAll('button[role="tab"]')]
+      .find((x) => /Settings/i.test(x.textContent))
+    if (b) b.click()
+  })
+  await sleep(350)
   await p.select('select', 'mock')
   await sleep(300)
+  await p.evaluate(() => {
+    const b = [...document.querySelectorAll('button[role="tab"]')]
+      .find((x) => /Sources/i.test(x.textContent))
+    if (b) b.click()
+  })
+  await sleep(350)
   await clickText('^Paste$')
   await setVal('textarea[placeholder*="Paste your document"]',
     'The rollback procedure drains the queue before redeploying the previous tag. ' +
     'Migrations run forward only. On-call is paged when the error rate exceeds two percent.')
   await clickText('Add Document')
 
+  // Personas moved to their own sidebar view
+  await p.evaluate(() => {
+    const b = [...document.querySelectorAll('button[role="tab"]')]
+      .find((x) => /Personas/i.test(x.textContent))
+    if (b) b.click()
+  })
+  await sleep(350)
+
   // Pick two personas — one click per tick. Clicking both inside a single
   // evaluate lets React batch them, so the second handler reads pre-click
   // state and silently overwrites the first selection.
   for (const label of ['Newcomer', 'Auditor']) {
     await p.evaluate((name) => {
-      const b = [...document.querySelectorAll('button[aria-pressed]')].find(
-        (x) => x.textContent.trim().startsWith(name))
-      if (b) b.click()
+      const cb = [...document.querySelectorAll('input[type=checkbox]')].find(
+        (x) => x.getAttribute('aria-label') === `Use ${name}`)
+      if (cb) cb.click()
     }, label)
     await sleep(250)
   }
   await sleep(300)
 
   const pickerState = await p.evaluate(() => ({
-    pressed: [...document.querySelectorAll('button[aria-pressed="true"]')].map((b) =>
-      b.textContent.trim().split(/\s{2,}|\n/)[0]),
+    checked: [...document.querySelectorAll('input[type=checkbox][aria-label^="Use "]')]
+      .filter((c) => c.checked)
+      .map((c) => c.getAttribute('aria-label')),
     hint: /split across 2 personas/i.test(document.body.innerText),
+    editable: document.querySelectorAll('button[aria-label^="Edit "]').length,
+    canCreate: /New persona/.test(document.body.innerText),
   }))
-  check('picker marks both personas selected', pickerState.pressed.length === 2,
-    JSON.stringify(pickerState.pressed))
-  check('picker explains the split', pickerState.hint)
+  check('both personas selected', pickerState.checked.length === 2,
+    JSON.stringify(pickerState.checked))
+  check('view explains the split', pickerState.hint)
+  check('every persona is editable', pickerState.editable >= 8, `${pickerState.editable} edit buttons`)
+  check('a new persona can be created', pickerState.canCreate)
 
+  // Pair count lives on the Settings view
+  await p.evaluate(() => {
+    const b = [...document.querySelectorAll('button[role="tab"]')]
+      .find((x) => /Settings/i.test(x.textContent))
+    if (b) b.click()
+  })
+  await sleep(350)
   await setVal('input[type="range"]', '8')
   await sleep(200)
   await clickText('Generate Dataset')
