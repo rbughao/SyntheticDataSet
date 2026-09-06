@@ -216,6 +216,8 @@ Selecting several splits the pair budget across them, and each gets its own
 request per chunk so the voices stay distinct instead of blurring into an
 average. Pairs are badged with their persona and can be filtered by it.
 
+![Pairs badged by persona](docs/screenshots/12-personas.png)
+
 > Two guardrails are built into the prompt. Answers are written *for* the
 > persona but never name them — without that, outputs start "As a developer,
 > you should…", which is an artefact of the generator rather than knowledge.

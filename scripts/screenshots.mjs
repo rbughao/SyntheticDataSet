@@ -65,14 +65,24 @@ async function setReactValue(page, selector, value) {
 /** Click the first button whose text matches. */
 async function clickByText(page, pattern) {
   const clicked = await page.evaluate((src) => {
-    const re = new RegExp(src)
-    const btn = [...document.querySelectorAll('button')].find((b) => re.test(b.textContent))
+    const re = new RegExp(src, 'i')
+    const btn = [...document.querySelectorAll('button')].find((b) => re.test(b.textContent.trim()))
     if (!btn) return false
     btn.click()
     return true
   }, pattern)
   if (!clicked) throw new Error(`No button matching /${pattern}/`)
   await sleep(400)
+}
+
+/** Switch the sidebar between Sources / Personas / Settings. */
+async function goToView(page, name) {
+  await page.evaluate((n) => {
+    const b = [...document.querySelectorAll('button[role="tab"]')]
+      .find((x) => new RegExp(n, 'i').test(x.textContent))
+    if (b) b.click()
+  }, name)
+  await sleep(350)
 }
 
 async function shot(page, name, opts = {}) {
@@ -107,8 +117,10 @@ async function main() {
   console.log('Capturing screenshots →', OUT)
 
   // ── Setup: Mock provider + pasted document ───────────────────────────────
+  await goToView(page, 'Settings')
   await page.select('select', 'mock')
   await sleep(300)
+  await goToView(page, 'Sources')
   await clickByText(page, '^Paste$')
   await setReactValue(page, 'textarea[placeholder*="Paste your document"]', DOC)
   await clickByText(page, 'Add Document')
@@ -140,8 +152,10 @@ async function main() {
   }
 
   // ── Generate a small, clean dataset ──────────────────────────────────────
+  await goToView(page, 'Settings')
   await setReactValue(page, 'input[type="range"]', '12')
   await sleep(200)
+  await goToView(page, 'Sources')
   await clickByText(page, 'Generate Dataset')
   await page.waitForFunction(() => /\d+ pairs/.test(document.body.innerText), { timeout: 30000 })
   await sleep(1200)
@@ -171,8 +185,10 @@ async function main() {
   await sleep(400)
 
   // ── Large run: duplicates, quality flags, virtualization ─────────────────
+  await goToView(page, 'Settings')
   await setReactValue(page, 'input[type="range"]', '300')
   await sleep(200)
+  await goToView(page, 'Sources')
   await clickByText(page, 'Generate Dataset')
   await page.waitForFunction(() => /300 pairs/.test(document.body.innerText), { timeout: 60000 })
   await sleep(1500)
@@ -209,19 +225,27 @@ async function main() {
   })
   await sleep(500)
 
+  // Be explicit about where we are: clearing the documents re-renders the
+  // panel, and the run above left the sidebar on another view.
+  await goToView(page, 'Sources')
+  await clickByText(page, '^Paste$')
   await setReactValue(page, 'textarea[placeholder*="Paste your document"]', MESSY)
   await clickByText(page, 'Add Document')
   await sleep(400)
+  await goToView(page, 'Settings')
   await setReactValue(page, 'input[type="range"]', '8')
   await sleep(200)
+  await goToView(page, 'Sources')
   await clickByText(page, 'Generate Dataset')
   await page.waitForFunction(() => /flagged by quality checks|\d+ pairs/.test(document.body.innerText), { timeout: 30000 })
   await sleep(1500)
   await shot(page, '07-quality-validation.png')
 
   // 08 — large output mode modal (pairCount > 1000)
+  await goToView(page, 'Settings')
   await setReactValue(page, 'input[type="range"]', '5000')
   await sleep(300)
+  await goToView(page, 'Sources')
   await clickByText(page, 'Generate Dataset')
   await sleep(700)
   await shot(page, '08-large-output-mode.png')
